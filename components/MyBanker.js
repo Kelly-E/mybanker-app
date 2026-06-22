@@ -197,6 +197,7 @@ const STORAGE_KEY = "mybanker:profile:v6";
 export default function MyBanker() {
   const [appPhase, setAppPhase] = useState("onboarding"); // onboarding | dashboard
   const [dashView, setDashView] = useState("overview");
+  const [planningFlow, setPlanningFlow] = useState(null); // null | "risk" | "simulator"
   const [step, setStep] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [detailedExpense, setDetailedExpense] = useState(false);
@@ -672,6 +673,7 @@ export default function MyBanker() {
     otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal,
     holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog,
     userAge, ageDecade, assetPercentile, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
+    planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
     expenseLogs, expenseLogInput, setExpenseLogInput, expenseLogItems, setExpenseLogItems, addExpenseLog, expenseProjection,
@@ -689,24 +691,14 @@ export default function MyBanker() {
         {step === 0 && <Intro onNext={() => setStep(1)} />}
         {step === 1 && <IncomeStep {...sharedProps} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
         {step === 2 && <ExpenseStep {...sharedProps} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
-        {step === 3 && <RiskStep riskProfile={riskProfile} setRiskProfile={setRiskProfile} onNext={() => setStep(4)} onBack={() => setStep(2)} />}
-        {step === 4 && (
+        {step === 3 && (
           <AssetBaseline assetInput={assetInput} setAssetInput={setAssetInput}
             holdings={holdings} holdingInput={holdingInput} setHoldingInput={setHoldingInput} addHolding={addHolding}
             removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
             totalHoldingsValue={holdings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
             otherAssets={otherAssets} updateOtherAsset={updateOtherAsset} updateOtherAssetLabel={updateOtherAssetLabel} updateOtherAssetRate={updateOtherAssetRate}
             addOtherAssetRow={addOtherAssetRow} removeOtherAsset={removeOtherAsset} otherAssetsTotal={otherAssetsTotal}
-            onNext={() => { if (assetLogs.length === 0) addAssetLog(); setStep(5); }} onBack={() => setStep(3)} />
-        )}
-        {step === 5 && (
-          <div>
-            <SimulatorPanel {...sharedProps} />
-            <div style={{ ...styles.btnRow, marginTop: 18 }}>
-              <button style={styles.ghostBtn} onClick={() => setStep(4)}>戻る</button>
-              <button style={styles.primaryBtn} onClick={finishOnboarding}>メイン画面へ</button>
-            </div>
-          </div>
+            onNext={() => { if (assetLogs.length === 0) addAssetLog(); finishOnboarding(); }} onBack={() => setStep(2)} />
         )}
       </div>
     </div>
@@ -714,7 +706,7 @@ export default function MyBanker() {
 }
 
 function Header({ step, setStep }) {
-  const labels = ["はじめに", "収入", "支出", "運用方針", "現在の資産", "配分シミュレーター"];
+  const labels = ["はじめに", "収入", "支出", "現在の資産"];
   return (
     <div style={styles.header}>
       <div style={styles.brand}><LogoIcon /> MyBanker</div>
@@ -737,16 +729,36 @@ function Intro({ onNext }) {
 }
 
 function Field({ label, value, onChange, suffix, hint, type }) {
+  const isNumeric = type !== "text";
+  const display = isNumeric && value !== "" && value !== undefined && value !== null
+    ? Number(String(value).replace(/,/g, "")).toLocaleString("ja-JP")
+    : value;
+  const handleChange = (e) => {
+    if (!isNumeric) { onChange(e); return; }
+    const raw = e.target.value.replace(/[^0-9]/g, "");
+    onChange({ target: { value: raw } });
+  };
   return (
     <label style={styles.field}>
       <span style={styles.fieldLabel}>{label}</span>
       <div style={styles.fieldInputRow}>
-        <input style={styles.input} value={value} onChange={onChange} inputMode={type === "text" ? "text" : "numeric"} type="text" />
+        <input style={styles.input} value={display} onChange={handleChange} inputMode={type === "text" ? "text" : "numeric"} type="text" />
         {suffix && <span style={styles.suffix}>{suffix}</span>}
       </div>
       {hint && <span style={styles.hint}>{hint}</span>}
     </label>
   );
+}
+
+function NumInput({ value, onChange, placeholder }) {
+  const display = value !== "" && value !== undefined && value !== null
+    ? Number(String(value).replace(/,/g, "")).toLocaleString("ja-JP")
+    : value;
+  const handleChange = (e) => {
+    const raw = e.target.value.replace(/[^0-9]/g, "");
+    onChange({ target: { value: raw } });
+  };
+  return <input style={styles.input} value={display} onChange={handleChange} inputMode="numeric" placeholder={placeholder} />;
 }
 
 function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack }) {
@@ -832,13 +844,15 @@ function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpe
       ) : (
         <div style={styles.expenseList}>
           {expenses.map((x) => (
-            <div key={x.key} style={styles.expenseRow}>
-              {x.custom ? <input style={styles.expenseLabelInput} value={x.label} placeholder="項目名" onChange={updateLabel(x.key)} /> : <span style={styles.expenseLabel}>{x.label}</span>}
+            <div key={x.key} style={styles.otherAssetCard}>
+              <div style={styles.otherAssetCardTop}>
+                {x.custom ? <input style={styles.otherAssetLabelInput} value={x.label} placeholder="項目名" onChange={updateLabel(x.key)} /> : <span style={styles.expenseLabel}>{x.label}</span>}
+                <button style={styles.removeBtn} onClick={() => removeExpense(x.key)}>×</button>
+              </div>
               <div style={styles.fieldInputRow}>
-                <input style={styles.input} value={x.amount} onChange={updateExpense(x.key)} inputMode="numeric" />
+                <NumInput value={x.amount} onChange={updateExpense(x.key)} />
                 <span style={styles.suffix}>円</span>
               </div>
-              <button style={styles.removeBtn} onClick={() => removeExpense(x.key)}>×</button>
             </div>
           ))}
           <button style={styles.addRowBtn} onClick={addExpenseRow}>+ 項目を追加する</button>
@@ -892,14 +906,14 @@ function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabe
               <label style={styles.otherAssetFieldWrap}>
                 <span style={styles.fieldLabel}>金額</span>
                 <div style={styles.fieldInputRow}>
-                  <input style={styles.input} value={x.amount} onChange={updateOtherAsset(x.key)} inputMode="numeric" />
+                  <NumInput value={x.amount} onChange={updateOtherAsset(x.key)} />
                   <span style={styles.suffix}>円</span>
                 </div>
               </label>
               <label style={styles.otherAssetFieldWrap}>
                 <span style={styles.fieldLabel}>想定年率</span>
                 <div style={styles.fieldInputRow}>
-                  <input style={styles.input} value={x.rate} onChange={updateOtherAssetRate(x.key)} inputMode="numeric" />
+                  <NumInput value={x.rate} onChange={updateOtherAssetRate(x.key)} />
                   <span style={styles.suffix}>%</span>
                 </div>
               </label>
@@ -919,19 +933,19 @@ function HoldingsEditor({ holdings, holdingInput, setHoldingInput, addHolding, r
     <div>
       <p style={styles.hint}>投資信託名や暗号資産名を入力すると、候補と想定年率が表示されます。候補にないものは、名前と想定年率を自分で入力できます。</p>
       <div style={{ position: "relative" }}>
-        <div style={styles.grid3}>
-          <div style={{ position: "relative" }}>
-            <Field label="商品名" value={holdingInput.name} onChange={(e) => { setHoldingInput({ ...holdingInput, name: e.target.value }); setShowSuggest(true); }} hint="例：eMAXIS Slim 全世界株式" type="text" />
-            {showSuggest && filtered.length > 0 && (
-              <div style={styles.suggestBox}>
-                {filtered.map((p) => (
-                  <div key={p.name} style={styles.suggestItem} onClick={() => pickPreset(p)}>
-                    <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <Field label="商品名" value={holdingInput.name} onChange={(e) => { setHoldingInput({ ...holdingInput, name: e.target.value }); setShowSuggest(true); }} hint="例：eMAXIS Slim 全世界株式" type="text" />
+          {showSuggest && filtered.length > 0 && (
+            <div style={styles.suggestBox}>
+              {filtered.map((p) => (
+                <div key={p.name} style={styles.suggestItem} onClick={() => pickPreset(p)}>
+                  <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={styles.grid2}>
           <Field label="保有額" value={holdingInput.amount} onChange={(e) => setHoldingInput({ ...holdingInput, amount: e.target.value })} suffix="円" />
           <Field label="想定年率" value={holdingInput.rate} onChange={(e) => setHoldingInput({ ...holdingInput, rate: e.target.value })} suffix="%" hint="候補選択で自動入力、手動でも変更可" />
         </div>
@@ -1016,7 +1030,7 @@ function Glossary({ onClose }) {
 }
 
 function Dashboard(props) {
-  const { dashView, setDashView } = props;
+  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile } = props;
   const [showGlossary, setShowGlossary] = useState(false);
   const navItems = [
     { key: "overview", label: "概要" },
@@ -1027,6 +1041,32 @@ function Dashboard(props) {
     { key: "expense", label: "支出実績" },
     { key: "settings", label: "設定" },
   ];
+
+  if (planningFlow) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.shell}>
+          <div style={styles.header}>
+            <div style={styles.brand}><LogoIcon /> MyBanker</div>
+          </div>
+          {planningFlow === "risk" && (
+            <RiskStep riskProfile={riskProfile} setRiskProfile={setRiskProfile}
+              onNext={() => setPlanningFlow("simulator")} onBack={() => setPlanningFlow(null)} />
+          )}
+          {planningFlow === "simulator" && (
+            <div>
+              <SimulatorPanel {...props} />
+              <div style={{ ...styles.btnRow, marginTop: 18 }}>
+                <button style={styles.ghostBtn} onClick={() => setPlanningFlow("risk")}>運用方針を直す</button>
+                <button style={styles.primaryBtn} onClick={() => setPlanningFlow(null)}>完了してメイン画面へ</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
@@ -1053,7 +1093,7 @@ function Dashboard(props) {
   );
 }
 
-function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView }) {
+function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow }) {
   const lastCompare = goalCompareData[goalCompareData.length - 1];
   const diff = lastCompare ? lastCompare.実際の資産 - lastCompare.計画上の想定 : null;
   const lastLog = assetLogs[assetLogs.length - 1];
@@ -1128,7 +1168,10 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
       </div>
 
       <div style={styles.chartCard}>
-        <p style={styles.chartTitle}>資産の推移予想（{RISK_PROFILES[riskProfile].label}）</p>
+        <div style={styles.chartTitleRow}>
+          <p style={styles.chartTitle}>資産の推移予想（{RISK_PROFILES[riskProfile].label}）</p>
+          <button style={styles.planBtn} onClick={() => setPlanningFlow("risk")}>将来の資産推移をシミュレーションする</button>
+        </div>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={projection} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
@@ -1353,7 +1396,7 @@ function AllocRow({ label, value, onChange, total, note, accent }) {
         {note && <div style={styles.ledgerNote}>{note}</div>}
       </div>
       <div style={styles.allocRight}>
-        <div style={styles.fieldInputRow}><input style={styles.input} value={value} onChange={onChange} inputMode="numeric" /><span style={styles.suffix}>円</span></div>
+        <div style={styles.fieldInputRow}><NumInput value={value} onChange={onChange} /><span style={styles.suffix}>円</span></div>
         <div style={styles.allocPct}>{pct(Number(value) || 0, total)}%</div>
       </div>
     </div>
@@ -1365,7 +1408,7 @@ function BonusAllocRow({ label, pctValue, onChange, amount, accent }) {
     <div style={styles.allocRow}>
       <div style={styles.allocLeft}><div style={{ ...styles.ledgerLabel, color: accent }}>{label}</div></div>
       <div style={styles.allocRight}>
-        <div style={styles.fieldInputRow}><input style={styles.input} value={pctValue} onChange={onChange} inputMode="numeric" /><span style={styles.suffix}>%</span></div>
+        <div style={styles.fieldInputRow}><NumInput value={pctValue} onChange={onChange} /><span style={styles.suffix}>%</span></div>
         <div style={styles.allocPct}>¥{fmt(amount)}</div>
       </div>
     </div>
@@ -1410,7 +1453,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
                 <div key={h.id} style={styles.nisaSplitRow}>
                   <span style={styles.nisaSplitLabel}>{h.name}（年率{h.rate}%）</span>
                   <div style={styles.fieldInputRow}>
-                    <input style={styles.input} value={nisaSplits[h.id] || ""} onChange={onChangeNisaSplit(h.id)} inputMode="numeric" placeholder="0" />
+                    <NumInput value={nisaSplits[h.id] || ""} onChange={onChangeNisaSplit(h.id)} placeholder="0" />
                     <span style={styles.suffix}>円</span>
                   </div>
                 </div>
@@ -1693,7 +1736,7 @@ function ExpenseTrackPanel({ expenseLogInput, setExpenseLogInput, expenseLogItem
             <div key={x.key} style={styles.expenseRow}>
               <input style={styles.expenseLabelInput} value={x.label} placeholder="項目名" onChange={updateItemLabel(x.key)} />
               <div style={styles.fieldInputRow}>
-                <input style={styles.input} value={x.amount} onChange={updateItem(x.key)} inputMode="numeric" />
+                <NumInput value={x.amount} onChange={updateItem(x.key)} />
                 <span style={styles.suffix}>円</span>
               </div>
               <button style={styles.removeBtn} onClick={() => removeItemRow(x.key)}>×</button>
@@ -1866,6 +1909,8 @@ const styles = {
   bonusBlock: { marginTop: 28, padding: "18px", border: "1px solid #E3E9E4", borderRadius: 12, background: "#FBF8F0" },
   chartCard: { marginTop: 24, padding: "18px 18px 6px", border: "1px solid #E3E9E4", borderRadius: 12 },
   chartTitle: { fontSize: 13, color: "#1F2630", fontWeight: 600, marginBottom: 6 },
+  chartTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 },
+  planBtn: { background: "#1F2630", color: "#fff", border: "none", borderRadius: 20, padding: "8px 14px", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" },
   chartNote: { fontSize: 10.5, color: "#9AA6A0", marginTop: 4 },
   furusatoCard: { marginTop: 18, display: "flex", gap: 24, padding: "14px 18px", background: "#F1F0E8", borderRadius: 10, flexWrap: "wrap" },
   furusatoCol: { display: "flex", flexDirection: "column", gap: 3 },
