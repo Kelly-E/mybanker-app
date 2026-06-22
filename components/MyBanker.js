@@ -1419,7 +1419,8 @@ function BonusAllocRow({ label, pctValue, onChange, amount, accent }) {
   );
 }
 
-function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS }) {
+function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS }) {
+  const [showAddHolding, setShowAddHolding] = useState(false);
   const onChangeAlloc = (key) => (e) => { setAllocTouched(true); setAlloc({ ...alloc, [key]: e.target.value }); };
   const onChangeBonusAlloc = (key) => (e) => setBonusAlloc({ ...bonusAlloc, [key]: e.target.value });
   const onChangeNisaSplit = (holdingId) => (e) => setNisaSplits({ ...nisaSplits, [holdingId]: e.target.value });
@@ -1473,6 +1474,19 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
                 残り ¥{fmt(nisaUnassignedAmount)} は未割り当てとして、コースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。登録済みの銘柄は、割り当てがなくても既存の保有額がそれぞれ自分自身の利率で計算され続けます。
               </p>
             </>
+          )}
+
+          {!showAddHolding ? (
+            <button style={styles.addRowBtn} onClick={() => setShowAddHolding(true)}>+ 銘柄を追加する</button>
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <HoldingsEditor
+                holdings={holdings} holdingInput={holdingInput} setHoldingInput={setHoldingInput} addHolding={addHolding}
+                removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
+                totalHoldingsValue={totalHoldingsValue}
+              />
+              <button style={{ ...styles.ghostBtn, marginTop: 8 }} onClick={() => setShowAddHolding(false)}>閉じる</button>
+            </div>
           )}
         </div>
 
