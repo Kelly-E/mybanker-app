@@ -354,22 +354,24 @@ export default function MyBanker() {
   useEffect(() => {
     if (!allocTouched && loaded) {
       const r = RISK_PROFILES[riskProfile].defaultRatios;
-      const savings = Math.round(monthlyFree * r.savings);
-      const nisa = Math.round(monthlyFree * r.nisa);
-      const free = Math.max(monthlyFree - savings - nisa, 0);
-      setAlloc({ savings: String(savings), nisa: String(nisa), other: "0", free: String(free) });
+      const savingsPct = Math.round(r.savings * 100);
+      const nisaPct = Math.round(r.nisa * 100);
+      const freePct = Math.max(100 - savingsPct - nisaPct, 0);
+      setAlloc({ savings: String(savingsPct), nisa: String(nisaPct), other: "0", free: String(freePct) });
     }
   }, [monthlyFree, riskProfile, loaded]); // eslint-disable-line
 
+  const allocPctTotal = (Number(alloc.savings) || 0) + (Number(alloc.nisa) || 0) + (Number(alloc.other) || 0) + (Number(alloc.free) || 0);
+  const allocOver = allocPctTotal > 100.5;
+  const allocUnder = allocPctTotal < 99.5;
+  const allocTotal = allocPctTotal; // 後方互換のため%合計をそのまま使う
+
   const allocNums = {
-    savings: Number(alloc.savings) || 0,
-    nisa: Number(alloc.nisa) || 0,
-    other: Number(alloc.other) || 0,
-    free: Number(alloc.free) || 0,
+    savings: monthlyFree * ((Number(alloc.savings) || 0) / 100),
+    nisa: monthlyFree * ((Number(alloc.nisa) || 0) / 100),
+    other: monthlyFree * ((Number(alloc.other) || 0) / 100),
+    free: monthlyFree * ((Number(alloc.free) || 0) / 100),
   };
-  const allocTotal = allocNums.savings + allocNums.nisa + allocNums.other + allocNums.free;
-  const allocOver = allocTotal > monthlyFree + 0.5;
-  const allocUnder = allocTotal < monthlyFree - 0.5;
 
   const bonusAllocNums = useMemo(() => {
     const p = (k) => (Number(bonusAlloc[k]) || 0) / 100;
@@ -386,12 +388,15 @@ export default function MyBanker() {
     [otherAssets]
   );
 
-  const nisaSplitTotal = useMemo(
+  // nisaSplitsは「株式投資の金額のうち何%をこの銘柄に割り当てるか」を保持する
+  const nisaSplitPctTotal = useMemo(
     () => holdings.reduce((s, h) => s + (Number(nisaSplits[h.id]) || 0), 0),
     [holdings, nisaSplits]
   );
-  const nisaUnassignedAmount = Math.max((Number(alloc.nisa) || 0) - nisaSplitTotal, 0);
-  const nisaSplitOver = nisaSplitTotal > (Number(alloc.nisa) || 0) + 0.5;
+  const nisaSplitOver = nisaSplitPctTotal > 100.5;
+  const nisaUnassignedPct = Math.max(100 - nisaSplitPctTotal, 0);
+  const nisaUnassignedAmount = allocNums.nisa * (nisaUnassignedPct / 100);
+  const nisaSplitTotal = allocNums.nisa * (Math.min(nisaSplitPctTotal, 100) / 100); // 円換算（表示用）
 
   const projection = useMemo(() => {
     const years = [1, 3, 5, 10, 15, 20, 25, 30];
@@ -399,7 +404,7 @@ export default function MyBanker() {
     let otherBal = 0;
     let unassignedBal = 0;
     const unassignedRate = profile.rate / 12;
-    const unassignedMonthly = Math.max(allocNums.nisa - nisaSplitTotal, 0);
+    const unassignedMonthly = nisaUnassignedAmount;
 
     // 銘柄ごとの残高（既存の保有額からスタートし、各銘柄自身の年率で計算）
     const holdingBalances = {};
@@ -410,11 +415,11 @@ export default function MyBanker() {
       const point = { year: label, 貯金: Math.round(savings), その他運用: Math.round(otherBal) };
       holdings.forEach((h) => { point[h.name] = Math.round(holdingBalances[h.id] || 0); });
       if (unassignedMonthly > 0) point["新規投資（未割り当て）"] = Math.round(unassignedBal);
-      // その他資産（暗号資産・FX・ポイントなど）は単利（複利ではなく）で概算
+      // その他資産（暗号資産・FX・ポイントなど）も、株式や金と同様に年率を複利（指数関数的成長）で概算
       growableOtherAssets.forEach((x) => {
         const principal = Number(x.amount) || 0;
         const rate = (Number(x.rate) || 0) / 100;
-        point[x.label] = Math.round(principal * (1 + rate * yearsElapsed));
+        point[x.label] = Math.round(principal * Math.pow(1 + rate, yearsElapsed));
       });
       return point;
     };
@@ -427,7 +432,7 @@ export default function MyBanker() {
 
         holdings.forEach((h) => {
           const hRate = (Number(h.rate) || 0) / 100 / 12;
-          const monthlyAdd = Number(nisaSplits[h.id]) || 0;
+          const monthlyAdd = allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100);
           holdingBalances[h.id] = (holdingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
         });
 
@@ -441,15 +446,14 @@ export default function MyBanker() {
       if (years.includes(y)) data.push(snapshot(`${y}年後`, y));
     }
     return data;
-  }, [allocNums, baselineSavings, holdings, profile, bonusHandling, bonusAllocNums, nisaSplits, nisaSplitTotal, growableOtherAssets]);
+  }, [allocNums, baselineSavings, holdings, profile, bonusHandling, bonusAllocNums, nisaSplits, nisaUnassignedAmount, growableOtherAssets]);
 
   const projectionSeriesKeys = useMemo(() => {
     const keys = holdings.map((h) => h.name);
-    const unassignedMonthly = Math.max(allocNums.nisa - nisaSplitTotal, 0);
-    if (unassignedMonthly > 0) keys.push("新規投資（未割り当て）");
+    if (nisaUnassignedAmount > 0) keys.push("新規投資（未割り当て）");
     growableOtherAssets.forEach((x) => keys.push(x.label));
     return keys;
-  }, [holdings, allocNums.nisa, nisaSplitTotal, growableOtherAssets]);
+  }, [holdings, nisaUnassignedAmount, growableOtherAssets]);
 
   const SERIES_COLORS = ["#3D5A99", "#B5582E", "#9A4A8C", "#5C8A99", "#C9A227", "#6B4F9A", "#4F8FA8", "#A8527A"];
 
@@ -504,10 +508,10 @@ export default function MyBanker() {
 
   const resetAllocToDefault = () => {
     const r = RISK_PROFILES[riskProfile].defaultRatios;
-    const savings = Math.round(monthlyFree * r.savings);
-    const nisa = Math.round(monthlyFree * r.nisa);
-    const free = Math.max(monthlyFree - savings - nisa, 0);
-    setAlloc({ savings: String(savings), nisa: String(nisa), other: "0", free: String(free) });
+    const savingsPct = Math.round(r.savings * 100);
+    const nisaPct = Math.round(r.nisa * 100);
+    const freePct = Math.max(100 - savingsPct - nisaPct, 0);
+    setAlloc({ savings: String(savingsPct), nisa: String(nisaPct), other: "0", free: String(freePct) });
   };
 
   const incomeProjection = useMemo(() => {
@@ -665,7 +669,7 @@ export default function MyBanker() {
     monthlyFree, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder,
     bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, bonusAnnualNet,
     projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault,
-    nisaSplits, setNisaSplits, nisaSplitTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS,
+    nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS,
     reviewSpan, setReviewSpan, email, setEmail,
     assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, deleteAssetLog, goalCompareData,
     incomeLogInput, setIncomeLogInput, addIncomeLog, incomeLogs, incomeProjection,
@@ -894,7 +898,7 @@ function RiskStep({ riskProfile, setRiskProfile, onNext, onBack }) {
 function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal }) {
   return (
     <div>
-      <p style={styles.hint}>暗号資産、FX、ポイントなど、お好きな項目を追加・編集できます。想定年率を入れると、推移予想に単利（複利ではなく）で反映されます。</p>
+      <p style={styles.hint}>暗号資産、FX、ポイントなど、お好きな項目を追加・編集できます。想定年率を入れると、推移予想に複利（年率に応じた指数関数的な成長）で反映されます。</p>
       <div style={styles.otherAssetList}>
         {otherAssets.map((x) => (
           <div key={x.key} style={styles.otherAssetCard}>
@@ -997,7 +1001,7 @@ function AssetBaseline({ assetInput, setAssetInput, holdings, holdingInput, setH
 
       <div style={styles.btnRow}>
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
-        <button style={styles.primaryBtn} onClick={onNext}>配分シミュレーターへ</button>
+        <button style={styles.primaryBtn} onClick={onNext}>メイン画面へ</button>
       </div>
     </div>
   );
@@ -1170,7 +1174,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
       <div style={styles.chartCard}>
         <div style={styles.chartTitleRow}>
           <p style={styles.chartTitle}>資産の推移予想（{RISK_PROFILES[riskProfile].label}）</p>
-          <button style={styles.planBtn} onClick={() => setPlanningFlow("risk")}>将来の資産推移をシミュレーションする</button>
+          <button style={styles.planBtn} onClick={() => setPlanningFlow("risk")}>積立プランを決めて将来の資産推移を見る</button>
         </div>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={projection} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -1186,7 +1190,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
             <Area type="monotone" dataKey="その他運用" stackId="1" stroke="#7A5C3D" fill="#CBB89A" />
           </AreaChart>
         </ResponsiveContainer>
-        <p style={styles.chartNote}>※ 株式投資は月次の複利、その他資産（暗号資産・FXなど）は単利での概算です。</p>
+        <p style={styles.chartNote}>※ 株式投資は月次の複利、その他資産（暗号資産・FXなど）は年率の複利で概算しています。想定年率自体の確実性は資産ごとに異なります（特に暗号資産は不確実性が高めです）。</p>
       </div>
 
       {diff !== null && (
@@ -1388,7 +1392,7 @@ function RankingPanel(props) {
   );
 }
 
-function AllocRow({ label, value, onChange, total, note, accent }) {
+function AllocRow({ label, pctValue, onChange, amount, note, accent }) {
   return (
     <div style={styles.allocRow}>
       <div style={styles.allocLeft}>
@@ -1396,8 +1400,8 @@ function AllocRow({ label, value, onChange, total, note, accent }) {
         {note && <div style={styles.ledgerNote}>{note}</div>}
       </div>
       <div style={styles.allocRight}>
-        <div style={styles.fieldInputRow}><NumInput value={value} onChange={onChange} /><span style={styles.suffix}>円</span></div>
-        <div style={styles.allocPct}>{pct(Number(value) || 0, total)}%</div>
+        <div style={styles.fieldInputRow}><NumInput value={pctValue} onChange={onChange} /><span style={styles.suffix}>%</span></div>
+        <div style={styles.allocPct}>¥{fmt(amount)}</div>
       </div>
     </div>
   );
@@ -1415,7 +1419,7 @@ function BonusAllocRow({ label, pctValue, onChange, amount, accent }) {
   );
 }
 
-function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, nisaSplits, setNisaSplits, nisaSplitTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS }) {
+function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS }) {
   const onChangeAlloc = (key) => (e) => { setAllocTouched(true); setAlloc({ ...alloc, [key]: e.target.value }); };
   const onChangeBonusAlloc = (key) => (e) => setBonusAlloc({ ...bonusAlloc, [key]: e.target.value });
   const onChangeNisaSplit = (holdingId) => (e) => setNisaSplits({ ...nisaSplits, [holdingId]: e.target.value });
@@ -1440,11 +1444,11 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
       <p style={styles.hint}>{RISK_PROFILES[riskProfile].mix}（年率{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%目安）</p>
 
       <div style={styles.allocList}>
-        <AllocRow label="貯金（緊急・将来資金）" value={alloc.savings} onChange={onChangeAlloc("savings")} total={monthlyFree} accent="#2F6B4F" />
-        <AllocRow label="株式投資（NISAなど）" value={alloc.nisa} onChange={onChangeAlloc("nisa")} total={monthlyFree} note="つみたて投資枠・成長投資枠・特定口座などを含めて自由に金額を決められます" accent="#3D5A99" />
+        <AllocRow label="貯金（緊急・将来資金）" pctValue={alloc.savings} onChange={onChangeAlloc("savings")} amount={allocNums.savings} accent="#2F6B4F" />
+        <AllocRow label="株式投資（NISAなど）" pctValue={alloc.nisa} onChange={onChangeAlloc("nisa")} amount={allocNums.nisa} note="つみたて投資枠・成長投資枠・特定口座などを含めて自由に%を決められます" accent="#3D5A99" />
 
         <div style={styles.nisaTargetBox}>
-          <span style={styles.fieldLabel}>この追加投資を、複数の銘柄に分けて割り当てられます（任意）</span>
+          <span style={styles.fieldLabel}>この株式投資額（¥{fmt(allocNums.nisa)}）を、複数の銘柄に分けて%で割り当てられます（任意）</span>
           {holdings.length === 0 ? (
             <p style={styles.hint}>まだ銘柄が登録されていないので、追加投資はコースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。</p>
           ) : (
@@ -1452,15 +1456,18 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
               {holdings.map((h) => (
                 <div key={h.id} style={styles.nisaSplitRow}>
                   <span style={styles.nisaSplitLabel}>{h.name}（年率{h.rate}%）</span>
-                  <div style={styles.fieldInputRow}>
-                    <NumInput value={nisaSplits[h.id] || ""} onChange={onChangeNisaSplit(h.id)} placeholder="0" />
-                    <span style={styles.suffix}>円</span>
+                  <div style={styles.allocRight}>
+                    <div style={styles.fieldInputRow}>
+                      <NumInput value={nisaSplits[h.id] || ""} onChange={onChangeNisaSplit(h.id)} placeholder="0" />
+                      <span style={styles.suffix}>%</span>
+                    </div>
+                    <div style={styles.allocPct}>¥{fmt(allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100))}</div>
                   </div>
                 </div>
               ))}
               <div style={{ ...styles.allocTotalBar, ...(nisaSplitOver ? styles.allocTotalError : {}) }}>
-                銘柄への割り当て合計：¥{fmt(nisaSplitTotal)} / ¥{fmt(Number(alloc.nisa) || 0)}
-                {nisaSplitOver && <span style={styles.errorText}>　株式投資の金額を超えています。</span>}
+                銘柄への割り当て合計：{Math.round(nisaSplitPctTotal)}%（¥{fmt(nisaSplitTotal)} / ¥{fmt(allocNums.nisa)}）
+                {nisaSplitOver && <span style={styles.errorText}>　100%を超えています。</span>}
               </div>
               <p style={styles.hint}>
                 残り ¥{fmt(nisaUnassignedAmount)} は未割り当てとして、コースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。登録済みの銘柄は、割り当てがなくても既存の保有額がそれぞれ自分自身の利率で計算され続けます。
@@ -1469,14 +1476,14 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
           )}
         </div>
 
-        <AllocRow label="その他運用（iDeCoなど）" value={alloc.other} onChange={onChangeAlloc("other")} total={monthlyFree} note="所得控除など税制メリットがある場合があります" accent="#7A5C3D" />
-        <AllocRow label="自由に使えるお金" value={alloc.free} onChange={onChangeAlloc("free")} total={monthlyFree} accent="#5C6862" />
+        <AllocRow label="その他運用（iDeCoなど）" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="所得控除など税制メリットがある場合があります" accent="#7A5C3D" />
+        <AllocRow label="自由に使えるお金" pctValue={alloc.free} onChange={onChangeAlloc("free")} amount={allocNums.free} accent="#5C6862" />
       </div>
 
       <div style={{ ...styles.allocTotalBar, ...(allocOver ? styles.allocTotalError : {}) }}>
-        合計：¥{fmt(allocTotal)} / ¥{fmt(monthlyFree)}（{pct(allocTotal, monthlyFree)}%）
-        {allocOver && <span style={styles.errorText}>　自由資金を超えています。</span>}
-        {allocUnder && <span style={styles.warnText}>　まだ ¥{fmt(monthlyFree - allocTotal)} 配分されていません。</span>}
+        合計：{Math.round(allocTotal)}%（¥{fmt(allocNums.savings + allocNums.nisa + allocNums.other + allocNums.free)} / ¥{fmt(monthlyFree)}）
+        {allocOver && <span style={styles.errorText}>　100%を超えています。</span>}
+        {allocUnder && <span style={styles.warnText}>　まだ {Math.round(100 - allocTotal)}% 配分されていません。</span>}
       </div>
 
       {bonusHandling === "lump" && bonusAnnualNet > 0 && (
@@ -1508,7 +1515,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
             <Area type="monotone" dataKey="その他運用" stackId="1" stroke="#7A5C3D" fill="#CBB89A" />
           </AreaChart>
         </ResponsiveContainer>
-        <p style={styles.chartNote}>※ 株式投資（銘柄ごと・新規投資）は月次の複利で計算しています。その他資産（暗号資産・FXなど）は単利（複利ではない）での概算です。将来の成果を保証するものではありません。</p>
+        <p style={styles.chartNote}>※ 株式投資（銘柄ごと・新規投資）もその他資産（暗号資産・FXなど）も、想定年率での複利計算による概算です。将来の成果を保証するものではありません。</p>
       </div>
 
       <div style={styles.furusatoCard}>
