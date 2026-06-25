@@ -1,6 +1,6 @@
 "use client";
 
-import { storage } from "../lib/storage";
+import { storage, startCheckout, getPremiumProfile, openBillingPortal } from "../lib/storage";
 import React, { useState, useMemo, useEffect } from "react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
@@ -228,7 +228,26 @@ export default function MyBanker() {
   ]);
   const [holdingInput, setHoldingInput] = useState({ name: "", amount: "", rate: "" });
   const [showSuggest, setShowSuggest] = useState(false);
-  const [isPremium, setIsPremium] = useState(false); // ※決済連携前のテスト用トグル
+  const [isPremium, setIsPremium] = useState(false); // ※実際の決済状態がわかるまでの初期値
+  const [myReferralCode, setMyReferralCode] = useState(null);
+  const [incomingReferralCode, setIncomingReferralCode] = useState(null);
+
+  useEffect(() => {
+    getPremiumProfile()
+      .then((p) => {
+        const stillValid = p.premium_until ? new Date(p.premium_until) > new Date() : p.is_premium;
+        setIsPremium(!!stillValid);
+        setMyReferralCode(p.referral_code);
+      })
+      .catch(() => {});
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref");
+      if (ref) setIncomingReferralCode(ref);
+    }
+  }, []);
+
 
   const [form, setForm] = useState({
     monthlyIncome: "350000",
@@ -680,6 +699,7 @@ export default function MyBanker() {
     planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
+    myReferralCode, incomingReferralCode,
     expenseLogs, expenseLogInput, setExpenseLogInput, expenseLogItems, setExpenseLogItems, addExpenseLog, expenseProjection,
     totalNetWorth,
   };
@@ -1225,9 +1245,35 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
   );
 }
 
-function PaywallGate({ isPremium, setIsPremium, children }) {
+function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, children }) {
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [copied, setCopied] = useState(false);
   if (isPremium) return <div>{children}</div>;
   const sampleHighlightIdx = SAMPLE_INCOME_DISTRIBUTION.findIndex((d) => d.highlight);
+
+  const referralUrl = myReferralCode
+    ? `https://mybanker-app.vercel.app/?ref=${myReferralCode}`
+    : "";
+
+  const handleCheckout = async () => {
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      await startCheckout(incomingReferralCode);
+    } catch (err) {
+      setErrorMsg("エラー: " + err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = () => {
+    if (!referralUrl) return;
+    navigator.clipboard?.writeText(referralUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div>
       <div style={{ marginTop: 8 }}>
@@ -1255,16 +1301,32 @@ function PaywallGate({ isPremium, setIsPremium, children }) {
       <div style={styles.paywallCard}>
         <p style={styles.paywallTitle}>ここから先はプレミアム会員限定です</p>
         <p style={styles.paywallDesc}>
-          分布グラフ、年収の比較、支出の費目別比較、貯蓄率の比較、資産成長率ランキングなど、より詳しい「自分の立ち位置」がわかります。
+          同年代の人との貯蓄・年収・支出の比較や分布グラフの表示、資産が増えているペースのランキングなど、より詳しく「自分の立ち位置」がわかります。
         </p>
         <div style={styles.paywallPriceRow}>
           <span style={styles.paywallPrice}>月額 ¥500</span>
           <span style={styles.paywallNote}>友人を1人紹介すると、その月は無料</span>
         </div>
+        {incomingReferralCode && (
+          <p style={styles.hint}>紹介コード「{incomingReferralCode}」を適用して登録します。</p>
+        )}
         <div style={styles.paywallBtnRow}>
-          <button style={styles.primaryBtn} disabled>登録する（決済機能は準備中）</button>
-          <button style={styles.ghostBtn} disabled>友人を紹介する（準備中）</button>
+          <button style={styles.primaryBtn} onClick={handleCheckout} disabled={loading}>
+            {loading ? "決済ページへ移動中..." : "登録する（¥500/月）"}
+          </button>
         </div>
+        {errorMsg && <p style={styles.warnText}>{errorMsg}</p>}
+
+        {myReferralCode && (
+          <div style={{ marginTop: 16 }}>
+            <p style={styles.fieldLabel}>あなたの紹介リンク（友人がこのリンクから登録すると、あなたが1ヶ月無料に）</p>
+            <div style={styles.fieldInputRow}>
+              <input style={styles.input} value={referralUrl} readOnly />
+              <button style={styles.ghostBtn} onClick={handleCopy}>{copied ? "コピーしました" : "コピー"}</button>
+            </div>
+          </div>
+        )}
+
         <button style={styles.testToggleBtn} onClick={() => setIsPremium(true)}>（テスト用）プレミアム表示を確認する</button>
       </div>
     </div>
@@ -1277,6 +1339,7 @@ function RankingPanel(props) {
     assetDistribution, incomePercentile, incomeDistribution, annualIncomeEstimateGross,
     expenseCategoryComparison, savingsRatePeer, savingsRateUser, savingsRateDiff,
     growthRateInfo, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
+    myReferralCode, incomingReferralCode,
   } = props;
   const ageStats = AGE_STATS[ageDecade];
   const incomeStats = INCOME_STATS[ageDecade];
@@ -1322,7 +1385,7 @@ function RankingPanel(props) {
 
       <div style={styles.divider} />
 
-      <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium}>
+      <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
         <div>
           <p style={styles.chartTitle}>年収の同年代比較</p>
           <div style={styles.percentileRow}>
