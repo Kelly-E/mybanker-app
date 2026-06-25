@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCurrentUser, upgradeToEmailAccount, signInWithEmail, signOut } from "../lib/storage";
+import { getCurrentUser, upgradeToEmailAccount, signInWithEmail, signOut, ensureUser } from "../lib/storage";
 
 export default function AuthBanner() {
   const [user, setUser] = useState(null);
@@ -11,7 +11,9 @@ export default function AuthBanner() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    getCurrentUser().then(setUser);
+    ensureUser()
+      .then(() => getCurrentUser())
+      .then(setUser);
   }, []);
 
   const isAnonymous = !user?.email;
@@ -20,6 +22,7 @@ export default function AuthBanner() {
     e.preventDefault();
     setMessage("");
     try {
+      await ensureUser(); // セッションが無い場合に備えて、登録の直前にも必ず確保する
       await upgradeToEmailAccount(email, password);
       setMessage("登録しました。確認メールが届いていれば、リンクを開いて認証してください。");
       const u = await getCurrentUser();
