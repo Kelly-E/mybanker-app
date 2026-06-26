@@ -10,10 +10,18 @@ export default function AuthBanner() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
 
+  const [incomingReferralCode, setIncomingReferralCode] = useState(null);
+
   useEffect(() => {
     ensureUser()
       .then(() => getCurrentUser())
       .then(setUser);
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref");
+      if (ref) setIncomingReferralCode(ref);
+    }
   }, []);
 
   const isAnonymous = !user?.email;
@@ -23,11 +31,20 @@ export default function AuthBanner() {
     setMessage("");
     try {
       await ensureUser(); // セッションが無い場合に備えて、登録の直前にも必ず確保する
-      await upgradeToEmailAccount(email, password);
+      const result = await upgradeToEmailAccount(email, password);
       setMessage("登録しました。確認メールが届いていれば、リンクを開いて認証してください。");
       const u = await getCurrentUser();
       setUser(u);
       setMode(null);
+
+      // 紹介コード経由での登録なら、紹介者に特典を付与する（決済は不要）
+      if (incomingReferralCode && u?.id) {
+        fetch("/api/apply-referral", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: u.id, referralCode: incomingReferralCode }),
+        }).catch(() => {});
+      }
     } catch (err) {
       setMessage("エラー: " + err.message);
     }
