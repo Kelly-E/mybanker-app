@@ -218,6 +218,7 @@ export default function MyBanker() {
   const [incomeLogs, setIncomeLogs] = useState([]);
   const [incomeLogInput, setIncomeLogInput] = useState({ month: String(new Date().getMonth() + 1), gross: "", takehome: "", hasBonus: false, bonus: "" });
   const [holdings, setHoldings] = useState([]); // {id, name, amount, rate, category}
+  const [otherHoldings, setOtherHoldings] = useState([]); // その他運用（iDeCoなど）専用の個別項目
   const [holdingsLogs, setHoldingsLogs] = useState([]); // {id, date, items, total}
   const [expenseLogs, setExpenseLogs] = useState([]); // {id, month, mode, total, items}
   const [expenseLogInput, setExpenseLogInput] = useState({ month: String(new Date().getMonth() + 1), mode: "simple", total: "" });
@@ -228,6 +229,8 @@ export default function MyBanker() {
   ]);
   const [holdingInput, setHoldingInput] = useState({ name: "", amount: "", rate: "" });
   const [showSuggest, setShowSuggest] = useState(false);
+  const [otherHoldingInput, setOtherHoldingInput] = useState({ name: "", amount: "", rate: "" });
+  const [showOtherSuggest, setShowOtherSuggest] = useState(false);
   const [isPremium, setIsPremium] = useState(false); // ※実際の決済状態がわかるまでの初期値
   const [myReferralCode, setMyReferralCode] = useState(null);
   const [incomingReferralCode, setIncomingReferralCode] = useState(null);
@@ -264,6 +267,7 @@ export default function MyBanker() {
   const [allocTouched, setAllocTouched] = useState(false);
   const [bonusAlloc, setBonusAlloc] = useState({ savings: "30", nisa: "50", other: "0", free: "20" });
   const [nisaSplits, setNisaSplits] = useState({}); // { [holdingId]: amountString }
+  const [otherSplits, setOtherSplits] = useState({}); // { [otherHoldingId]: pctString }
 
   useEffect(() => {
     (async () => {
@@ -283,9 +287,11 @@ export default function MyBanker() {
           if (d.alloc) { setAlloc(d.alloc); setAllocTouched(true); }
           if (d.bonusAlloc) setBonusAlloc(d.bonusAlloc);
           if (d.nisaSplits) setNisaSplits(d.nisaSplits);
+          if (d.otherSplits) setOtherSplits(d.otherSplits);
           if (d.assetLogs) setAssetLogs(d.assetLogs.map((l, i) => (l.id ? l : { ...l, id: Date.now() + i })));
           if (d.incomeLogs) setIncomeLogs(d.incomeLogs);
           if (d.holdings) setHoldings(d.holdings);
+          if (d.otherHoldings) setOtherHoldings(d.otherHoldings);
           if (d.otherAssets) setOtherAssets(d.otherAssets);
           if (d.holdingsLogs) setHoldingsLogs(d.holdingsLogs);
           if (d.isPremium) setIsPremium(d.isPremium);
@@ -299,9 +305,9 @@ export default function MyBanker() {
 
   useEffect(() => {
     if (!loaded) return;
-    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium };
+    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits };
     storage.set(STORAGE_KEY, JSON.stringify(data), false).catch(() => {});
-  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, loaded]);
+  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, loaded]);
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const updateExpense = (key) => (e) => setExpenses(expenses.map((x) => (x.key === key ? { ...x, amount: e.target.value } : x)));
@@ -417,6 +423,16 @@ export default function MyBanker() {
   const nisaUnassignedAmount = allocNums.nisa * (nisaUnassignedPct / 100);
   const nisaSplitTotal = allocNums.nisa * (Math.min(nisaSplitPctTotal, 100) / 100); // 円換算（表示用）
 
+  // otherSplitsは「その他運用の金額のうち何%をこの項目に割り当てるか」を保持する
+  const otherSplitPctTotal = useMemo(
+    () => otherHoldings.reduce((s, h) => s + (Number(otherSplits[h.id]) || 0), 0),
+    [otherHoldings, otherSplits]
+  );
+  const otherSplitOver = otherSplitPctTotal > 100.5;
+  const otherUnassignedPct = Math.max(100 - otherSplitPctTotal, 0);
+  const otherUnassignedAmount = allocNums.other * (otherUnassignedPct / 100);
+  const otherSplitTotal = allocNums.other * (Math.min(otherSplitPctTotal, 100) / 100);
+
   const projection = useMemo(() => {
     const years = [1, 3, 5, 10, 15, 20, 25, 30];
     let savings = baselineSavings;
@@ -424,16 +440,21 @@ export default function MyBanker() {
     let unassignedBal = 0;
     const unassignedRate = profile.rate / 12;
     const unassignedMonthly = nisaUnassignedAmount;
+    const otherUnassignedMonthly = otherUnassignedAmount;
 
     // 銘柄ごとの残高（既存の保有額からスタートし、各銘柄自身の年率で計算）
     const holdingBalances = {};
     holdings.forEach((h) => { holdingBalances[h.id] = Number(h.amount) || 0; });
+    const otherHoldingBalances = {};
+    otherHoldings.forEach((h) => { otherHoldingBalances[h.id] = Number(h.amount) || 0; });
 
     const data = [];
     const snapshot = (label, yearsElapsed) => {
-      const point = { year: label, 貯金: Math.round(savings), その他運用: Math.round(otherBal) };
+      const point = { year: label, 貯金: Math.round(savings) };
       holdings.forEach((h) => { point[h.name] = Math.round(holdingBalances[h.id] || 0); });
+      otherHoldings.forEach((h) => { point[h.name] = Math.round(otherHoldingBalances[h.id] || 0); });
       if (unassignedMonthly > 0) point["新規投資（未割り当て）"] = Math.round(unassignedBal);
+      if (otherUnassignedMonthly > 0) point["その他運用（未割り当て）"] = Math.round(otherBal);
       // その他資産（暗号資産・FX・ポイントなど）も、株式や金と同様に年率を複利（指数関数的成長）で概算
       growableOtherAssets.forEach((x) => {
         const principal = Number(x.amount) || 0;
@@ -447,12 +468,18 @@ export default function MyBanker() {
     for (let y = 1; y <= 30; y++) {
       for (let m = 0; m < 12; m++) {
         savings += allocNums.savings;
-        otherBal = otherBal * (1 + unassignedRate) + allocNums.other;
+        otherBal = otherBal * (1 + unassignedRate) + otherUnassignedMonthly;
 
         holdings.forEach((h) => {
           const hRate = (Number(h.rate) || 0) / 100 / 12;
           const monthlyAdd = allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100);
           holdingBalances[h.id] = (holdingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
+        });
+
+        otherHoldings.forEach((h) => {
+          const hRate = (Number(h.rate) || 0) / 100 / 12;
+          const monthlyAdd = allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100);
+          otherHoldingBalances[h.id] = (otherHoldingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
         });
 
         unassignedBal = unassignedBal * (1 + unassignedRate) + unassignedMonthly;
@@ -465,14 +492,16 @@ export default function MyBanker() {
       if (years.includes(y)) data.push(snapshot(`${y}年後`, y));
     }
     return data;
-  }, [allocNums, baselineSavings, holdings, profile, bonusHandling, bonusAllocNums, nisaSplits, nisaUnassignedAmount, growableOtherAssets]);
+  }, [allocNums, baselineSavings, holdings, otherHoldings, profile, bonusHandling, bonusAllocNums, nisaSplits, otherSplits, nisaUnassignedAmount, otherUnassignedAmount, growableOtherAssets]);
 
   const projectionSeriesKeys = useMemo(() => {
     const keys = holdings.map((h) => h.name);
     if (nisaUnassignedAmount > 0) keys.push("新規投資（未割り当て）");
+    otherHoldings.forEach((h) => keys.push(h.name));
+    if (otherUnassignedAmount > 0) keys.push("その他運用（未割り当て）");
     growableOtherAssets.forEach((x) => keys.push(x.label));
     return keys;
-  }, [holdings, nisaUnassignedAmount, growableOtherAssets]);
+  }, [holdings, nisaUnassignedAmount, otherHoldings, otherUnassignedAmount, growableOtherAssets]);
 
   const SERIES_COLORS = ["#3D5A99", "#B5582E", "#9A4A8C", "#5C8A99", "#C9A227", "#6B4F9A", "#4F8FA8", "#A8527A"];
 
@@ -488,7 +517,9 @@ export default function MyBanker() {
     const entry = {
       id: existingIdx >= 0 ? assetLogs[existingIdx].id : Date.now(),
       date: todayKey, savings: assetInput.savings, stocks: String(stocksFromHoldings),
-      other: String(otherAssetsTotal), otherItems: otherAssets.map((x) => ({ label: x.label, amount: x.amount })), total,
+      other: String(otherAssetsTotal), otherItems: otherAssets.map((x) => ({ label: x.label, amount: x.amount })),
+      holdingItems: holdings.map((h) => ({ name: h.name, amount: h.amount, rate: h.rate })),
+      total,
     };
     if (prev) entry.impliedSpending = Math.round(monthlyIncomeComputed - (total - prev.total));
     if (existingIdx >= 0) {
@@ -635,6 +666,17 @@ export default function MyBanker() {
     setShowSuggest(false);
   };
 
+  const addOtherHolding = () => {
+    if (!otherHoldingInput.name || !otherHoldingInput.amount) return;
+    setOtherHoldings([...otherHoldings, { id: Date.now(), name: otherHoldingInput.name, amount: Number(otherHoldingInput.amount) || 0, rate: Number(otherHoldingInput.rate) || 0 }]);
+    setOtherHoldingInput({ name: "", amount: "", rate: "" });
+  };
+  const removeOtherHolding = (id) => setOtherHoldings(otherHoldings.filter((h) => h.id !== id));
+  const pickOtherPreset = (p) => {
+    setOtherHoldingInput({ name: p.name, amount: otherHoldingInput.amount, rate: String(p.rate) });
+    setShowOtherSuggest(false);
+  };
+
   const saveHoldingsSnapshot = () => {
     const todayKey = new Date().toLocaleDateString("ja-JP");
     const existingIdx = holdingsLogs.findIndex((l) => l.date === todayKey);
@@ -689,6 +731,8 @@ export default function MyBanker() {
     bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, bonusAnnualNet,
     projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault,
     nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS,
+    otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset,
+    otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver,
     reviewSpan, setReviewSpan, email, setEmail,
     assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, deleteAssetLog, goalCompareData,
     incomeLogInput, setIncomeLogInput, addIncomeLog, incomeLogs, incomeProjection,
@@ -1207,7 +1251,6 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
             {projectionSeriesKeys.map((key, i) => (
               <Area key={key} type="monotone" dataKey={key} stackId="1" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} fill={SERIES_COLORS[i % SERIES_COLORS.length]} fillOpacity={0.45} />
             ))}
-            <Area type="monotone" dataKey="その他運用" stackId="1" stroke="#7A5C3D" fill="#CBB89A" />
           </AreaChart>
         </ResponsiveContainer>
         <p style={styles.chartNote}>※ 株式投資は月次の複利、その他資産（暗号資産・FXなど）は年率の複利で概算しています。想定年率自体の確実性は資産ごとに異なります（特に暗号資産は不確実性が高めです）。</p>
@@ -1482,11 +1525,13 @@ function BonusAllocRow({ label, pctValue, onChange, amount, accent }) {
   );
 }
 
-function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS }) {
+function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS, otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset, otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver }) {
   const [showAddHolding, setShowAddHolding] = useState(false);
+  const [showAddOtherHolding, setShowAddOtherHolding] = useState(false);
   const onChangeAlloc = (key) => (e) => { setAllocTouched(true); setAlloc({ ...alloc, [key]: e.target.value }); };
   const onChangeBonusAlloc = (key) => (e) => setBonusAlloc({ ...bonusAlloc, [key]: e.target.value });
   const onChangeNisaSplit = (holdingId) => (e) => setNisaSplits({ ...nisaSplits, [holdingId]: e.target.value });
+  const onChangeOtherSplit = (holdingId) => (e) => setOtherSplits({ ...otherSplits, [holdingId]: e.target.value });
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>配分シミュレーター</p>
@@ -1554,6 +1599,49 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
         </div>
 
         <AllocRow label="その他運用（iDeCoなど）" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="所得控除など税制メリットがある場合があります" accent="#7A5C3D" />
+
+        <div style={styles.nisaTargetBox}>
+          <span style={styles.fieldLabel}>このその他運用額（¥{fmt(allocNums.other)}）も、暗号資産・FX・ポイントなどの項目に分けて%で割り当てられます（任意）</span>
+          {otherHoldings.length === 0 ? (
+            <p style={styles.hint}>まだ項目が登録されていないので、追加投資はコースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。</p>
+          ) : (
+            <>
+              {otherHoldings.map((h) => (
+                <div key={h.id} style={styles.nisaSplitRow}>
+                  <span style={styles.nisaSplitLabel}>{h.name}（年率{h.rate}%）</span>
+                  <div style={styles.allocRight}>
+                    <div style={styles.fieldInputRow}>
+                      <NumInput value={otherSplits[h.id] || ""} onChange={onChangeOtherSplit(h.id)} placeholder="0" />
+                      <span style={styles.suffix}>%</span>
+                    </div>
+                    <div style={styles.allocPct}>¥{fmt(allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100))}</div>
+                  </div>
+                </div>
+              ))}
+              <div style={{ ...styles.allocTotalBar, ...(otherSplitOver ? styles.allocTotalError : {}) }}>
+                項目への割り当て合計：{Math.round(otherSplitPctTotal)}%（¥{fmt(otherSplitTotal)} / ¥{fmt(allocNums.other)}）
+                {otherSplitOver && <span style={styles.errorText}>　100%を超えています。</span>}
+              </div>
+              <p style={styles.hint}>
+                残り ¥{fmt(otherUnassignedAmount)} は未割り当てとして、コースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。
+              </p>
+            </>
+          )}
+
+          {!showAddOtherHolding ? (
+            <button style={styles.addRowBtn} onClick={() => setShowAddOtherHolding(true)}>+ 項目を追加する（例：暗号資産、FX、ポイントなど）</button>
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <HoldingsEditor
+                holdings={otherHoldings} holdingInput={otherHoldingInput} setHoldingInput={setOtherHoldingInput} addHolding={addOtherHolding}
+                removeHolding={removeOtherHolding} showSuggest={showOtherSuggest} setShowSuggest={setShowOtherSuggest} pickPreset={pickOtherPreset}
+                totalHoldingsValue={otherHoldings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
+              />
+              <button style={{ ...styles.ghostBtn, marginTop: 8 }} onClick={() => setShowAddOtherHolding(false)}>閉じる</button>
+            </div>
+          )}
+        </div>
+
         <AllocRow label="自由に使えるお金" pctValue={alloc.free} onChange={onChangeAlloc("free")} amount={allocNums.free} accent="#5C6862" />
       </div>
 
@@ -1589,7 +1677,6 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
             {projectionSeriesKeys.map((key, i) => (
               <Area key={key} type="monotone" dataKey={key} stackId="1" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} fill={SERIES_COLORS[i % SERIES_COLORS.length]} fillOpacity={0.45} />
             ))}
-            <Area type="monotone" dataKey="その他運用" stackId="1" stroke="#7A5C3D" fill="#CBB89A" />
           </AreaChart>
         </ResponsiveContainer>
         <p style={styles.chartNote}>※ 株式投資（銘柄ごと・新規投資）もその他資産（暗号資産・FXなど）も、想定年率での複利計算による概算です。将来の成果を保証するものではありません。</p>
@@ -1607,10 +1694,8 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
 function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, deleteAssetLog, goalCompareData, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog }) {
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
-  const [openHoldingsLogId, setOpenHoldingsLogId] = useState(null);
   const todayLabel = new Date().toLocaleDateString("ja-JP");
   const sortedLogs = [...assetLogs].sort((a, b) => b.id - a.id);
-  const sortedHoldingsLogs = [...holdingsLogs].sort((a, b) => b.id - a.id);
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>保有資産</p>
@@ -1653,7 +1738,7 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
 
       {sortedLogs.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <p style={styles.chartTitle}>資産カテゴリの記録履歴</p>
+          <p style={styles.chartTitle}>資産の記録履歴（内訳・銘柄ごとも含む）</p>
           <div style={styles.ledger}>
             {sortedLogs.map((l) => (
               <div key={l.id}>
@@ -1663,11 +1748,32 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
                 </div>
                 {openLogId === l.id && (
                   <div style={styles.historyDetail}>
-                    <div style={styles.grid2}>
-                      <Field label="貯金・現金" value={l.savings} onChange={(e) => updateAssetLog(l.id, "savings", e.target.value)} suffix="円" />
-                      <Field label="株式・投資信託" value={l.stocks} onChange={(e) => updateAssetLog(l.id, "stocks", e.target.value)} suffix="円" hint="この日のスナップショットです" />
-                      <Field label="その他資産" value={l.other} onChange={(e) => updateAssetLog(l.id, "other", e.target.value)} suffix="円" />
-                    </div>
+                    <Field label="貯金・現金" value={l.savings} onChange={(e) => updateAssetLog(l.id, "savings", e.target.value)} suffix="円" />
+
+                    {l.holdingItems && l.holdingItems.length > 0 && (
+                      <>
+                        <p style={styles.chartTitle}>株式・投資信託の内訳（この日のスナップショット）</p>
+                        {l.holdingItems.map((it, i) => (
+                          <div key={i} style={styles.ledgerRow}>
+                            <span style={styles.ledgerLabel}>{it.name}</span>
+                            <span style={styles.ledgerNote}>¥{fmt(it.amount)}（年率{it.rate}%）</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {l.otherItems && l.otherItems.length > 0 && (
+                      <>
+                        <p style={styles.chartTitle}>その他資産の内訳（この日のスナップショット）</p>
+                        {l.otherItems.map((it, i) => (
+                          <div key={i} style={styles.ledgerRow}>
+                            <span style={styles.ledgerLabel}>{it.label}</span>
+                            <span style={styles.ledgerNote}>¥{fmt(it.amount)}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
                     <button style={styles.deleteLogBtn} onClick={() => { deleteAssetLog(l.id); setOpenLogId(null); }}>この記録を削除する</button>
                   </div>
                 )}
@@ -1691,34 +1797,7 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
         removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
         totalHoldingsValue={totalHoldingsValue}
       />
-      <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={saveHoldingsSnapshot}>{todayLabel}の記録として保存する</button>
-
-      {sortedHoldingsLogs.length > 0 && (
-        <div style={{ marginTop: 24 }}>
-          <p style={styles.chartTitle}>株式・投資信託の記録履歴</p>
-          <div style={styles.ledger}>
-            {sortedHoldingsLogs.map((l) => (
-              <div key={l.id}>
-                <div style={styles.historyRow} onClick={() => setOpenHoldingsLogId(openHoldingsLogId === l.id ? null : l.id)}>
-                  <span style={styles.ledgerLabel}>{l.date}</span>
-                  <span style={styles.ledgerValue}>¥{fmt(l.total)}</span>
-                </div>
-                {openHoldingsLogId === l.id && (
-                  <div style={styles.historyDetail}>
-                    {l.items.map((it) => (
-                      <div key={it.id} style={styles.grid2}>
-                        <div style={styles.field}><span style={styles.fieldLabel}>{it.name}</span></div>
-                        <Field label="保有額" value={it.amount} onChange={(e) => updateHoldingsLogItem(l.id, it.id, "amount", e.target.value)} suffix="円" />
-                      </div>
-                    ))}
-                    <button style={styles.deleteLogBtn} onClick={() => { deleteHoldingsLog(l.id); setOpenHoldingsLogId(null); }}>この記録を削除する</button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <p style={styles.hint}>登録・編集した内容は、上の「{todayLabel}の記録として保存する」ボタンを押すと記録に反映されます。</p>
     </div>
   );
 }
