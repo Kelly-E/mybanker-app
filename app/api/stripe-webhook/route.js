@@ -50,12 +50,14 @@ export async function POST(req) {
       const sub = event.data.object;
       const userId = sub.metadata?.user_id;
       const isActive = sub.status === "active" || sub.status === "trialing";
+      // Stripeの新しいAPIバージョンでは current_period_end がサブスク項目（items）側に移動している場合がある
+      const periodEnd = sub.current_period_end || sub.items?.data?.[0]?.current_period_end;
       if (userId) {
         await supabaseAdmin
           .from("user_profiles")
           .update({
             is_premium: isActive,
-            premium_until: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+            premium_until: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
           })
           .eq("user_id", userId);
       }
