@@ -1598,7 +1598,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
           )}
         </div>
 
-        <AllocRow label="その他運用（iDeCoなど）" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="所得控除など税制メリットがある場合があります" accent="#7A5C3D" />
+        <AllocRow label="その他運用" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="所得控除など税制メリットがある場合があります" accent="#7A5C3D" />
 
         <div style={styles.nisaTargetBox}>
           <span style={styles.fieldLabel}>このその他運用額（¥{fmt(allocNums.other)}）も、暗号資産・FX・ポイントなどの項目に分けて%で割り当てられます（任意）</span>
