@@ -72,6 +72,30 @@ const SAVINGS_RATE_STATS = {
   20: 12, 30: 15, 40: 16, 50: 17, 60: 14, 70: 10,
 };
 
+// 年収帯別の総資産・支出・貯蓄率の目安。
+// ※直接的に「年収帯別×総資産×支出×貯蓄率」を同時に調査した単一の公的統計は無いため、
+// J-FLECの年収別資産データ・総務省家計調査の収入別消費支出データの傾向を踏まえて組み合わせた推定モデルです。
+const INCOME_BRACKET_STATS = [
+  { label: "300万円未満", min: 0, max: 300, assetMean: 320, assetMedian: 90, monthlyExpense: 15.5, savingsRate: 8 },
+  { label: "300〜500万円", min: 300, max: 500, assetMean: 620, assetMedian: 220, monthlyExpense: 18.0, savingsRate: 13 },
+  { label: "500〜700万円", min: 500, max: 700, assetMean: 1020, assetMedian: 420, monthlyExpense: 21.0, savingsRate: 17 },
+  { label: "700〜1000万円", min: 700, max: 1000, assetMean: 1650, assetMedian: 700, monthlyExpense: 25.5, savingsRate: 21 },
+  { label: "1000万円以上", min: 1000, max: Infinity, assetMean: 2900, assetMedian: 1300, monthlyExpense: 32.0, savingsRate: 26 },
+];
+function getIncomeBracket(annualIncomeMan) {
+  return INCOME_BRACKET_STATS.find((b) => annualIncomeMan >= b.min && annualIncomeMan < b.max) || INCOME_BRACKET_STATS[INCOME_BRACKET_STATS.length - 1];
+}
+
+// 東証プライム上場企業社員の目安データ。
+// 年収 出典：株式会社帝国データバンク「上場企業の『平均年間給与』動向調査（2024年度決算）」東証プライム上場企業平均763.3万円。
+// 中央値・総資産・支出・貯蓄率は直接の公表統計が無いため、上記年収水準と一般的な収入・資産の相関傾向を踏まえた推定値です。
+const PRIME_STATS = {
+  incomeMean: 763.3, incomeMedian: 660,
+  assetMean: 2100, assetMedian: 950,
+  monthlyExpense: 26.5,
+  savingsRate: 23,
+};
+
 // 年収帯（万円）に応じた手取り率（%）の目安テーブル。社会保険料・所得税（累進）・住民税を踏まえた
 // 一般的な「年収別手取り早見表」の概算値を参考にしています（独身・扶養なしを想定した簡易モデル）。
 // 厳密な税額計算ではなく、年収帯によって手取り率が変わることを反映するための近似です。
@@ -219,6 +243,10 @@ export default function MyBanker() {
   const [incomeLogInput, setIncomeLogInput] = useState({ month: String(new Date().getMonth() + 1), gross: "", takehome: "", hasBonus: false, bonus: "" });
   const [holdings, setHoldings] = useState([]); // {id, name, amount, rate, category}
   const [otherHoldings, setOtherHoldings] = useState([]); // その他運用（iDeCoなど）専用の個別項目
+  const [sideIncomes, setSideIncomes] = useState([]); // 副業 {id, name, amount}
+  const [sideIncomeInput, setSideIncomeInput] = useState({ name: "", amount: "" });
+  const [showSideIncome, setShowSideIncome] = useState(false);
+  const sideIncomeMonthlyTotal = sideIncomes.reduce((s, x) => s + (Number(x.amount) || 0), 0);
   const [holdingsLogs, setHoldingsLogs] = useState([]); // {id, date, items, total}
   const [expenseLogs, setExpenseLogs] = useState([]); // {id, month, mode, total, items}
   const [expenseLogInput, setExpenseLogInput] = useState({ month: String(new Date().getMonth() + 1), mode: "simple", total: "" });
@@ -288,10 +316,16 @@ export default function MyBanker() {
           if (d.bonusAlloc) setBonusAlloc(d.bonusAlloc);
           if (d.nisaSplits) setNisaSplits(d.nisaSplits);
           if (d.otherSplits) setOtherSplits(d.otherSplits);
-          if (d.assetLogs) setAssetLogs(d.assetLogs.map((l, i) => (l.id ? l : { ...l, id: Date.now() + i })));
+          if (d.assetLogs) {
+            const logs = d.assetLogs.map((l, i) => (l.id ? l : { ...l, id: Date.now() + i }));
+            setAssetLogs(logs);
+            const lastLog = [...logs].sort((a, b) => a.id - b.id)[logs.length - 1];
+            if (lastLog) setAssetInput({ savings: lastLog.savings });
+          }
           if (d.incomeLogs) setIncomeLogs(d.incomeLogs);
           if (d.holdings) setHoldings(d.holdings);
           if (d.otherHoldings) setOtherHoldings(d.otherHoldings);
+          if (d.sideIncomes) setSideIncomes(d.sideIncomes);
           if (d.otherAssets) setOtherAssets(d.otherAssets);
           if (d.holdingsLogs) setHoldingsLogs(d.holdingsLogs);
           if (d.isPremium) setIsPremium(d.isPremium);
@@ -305,9 +339,9 @@ export default function MyBanker() {
 
   useEffect(() => {
     if (!loaded) return;
-    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits };
+    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes };
     storage.set(STORAGE_KEY, JSON.stringify(data), false).catch(() => {});
-  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, loaded]);
+  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, loaded]);
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const updateExpense = (key) => (e) => setExpenses(expenses.map((x) => (x.key === key ? { ...x, amount: e.target.value } : x)));
@@ -359,15 +393,15 @@ export default function MyBanker() {
   const bonusAnnualNet = bonusInputType === "gross" ? Math.round(bonusAnnualInputRaw * takeHomeRatio) : bonusAnnualInputRaw;
   const bonusAnnualGross = bonusInputType === "gross" ? bonusAnnualInputRaw : Math.round(bonusAnnualInputRaw / takeHomeRatio);
 
-  const annualIncomeEstimateNet = monthlyIncomeComputed * 12 + bonusAnnualNet;
-  const annualIncomeEstimateGross = monthlyGrossComputed * 12 + bonusAnnualGross;
+  const annualIncomeEstimateNet = monthlyIncomeComputed * 12 + bonusAnnualNet + sideIncomeMonthlyTotal * 12;
+  const annualIncomeEstimateGross = monthlyGrossComputed * 12 + bonusAnnualGross + sideIncomeMonthlyTotal * 12;
 
   const monthlyFree = useMemo(() => {
     if (bonusHandling === "smooth") {
       return Math.max((annualIncomeEstimateNet - totalExpense * 12) / 12, 0);
     }
-    return Math.max(monthlyIncomeComputed - totalExpense, 0);
-  }, [bonusHandling, annualIncomeEstimateNet, totalExpense, monthlyIncomeComputed]);
+    return Math.max(monthlyIncomeComputed + sideIncomeMonthlyTotal - totalExpense, 0);
+  }, [bonusHandling, annualIncomeEstimateNet, totalExpense, monthlyIncomeComputed, sideIncomeMonthlyTotal]);
 
   const insuranceExpense = useMemo(() => {
     if (!detailedExpense) return 0;
@@ -655,6 +689,34 @@ export default function MyBanker() {
     return { growthPct, benchmark, aboveBenchmark: growthPct >= benchmark };
   }, [assetLogs]);
 
+  // 同収入との比較（年収帯が同じ人との比較。総資産・支出・貯蓄率）
+  const incomeBracket = useMemo(() => getIncomeBracket(annualIncomeEstimateGross / 10000), [annualIncomeEstimateGross]);
+  const incomeBracketAssetPercentile = useMemo(
+    () => estimatePercentile(totalNetWorth / 10000, incomeBracket.assetMean, incomeBracket.assetMedian),
+    [totalNetWorth, incomeBracket]
+  );
+  const incomeBracketAssetDistribution = useMemo(() => generateDistributionCurve(incomeBracket.assetMean, incomeBracket.assetMedian), [incomeBracket]);
+  const incomeBracketPeerMonthlyExpense = incomeBracket.monthlyExpense * 10000;
+  const incomeBracketExpenseDiff = totalExpense - incomeBracketPeerMonthlyExpense;
+  const incomeBracketExpenseDiffPct = incomeBracketPeerMonthlyExpense > 0 ? Math.round((incomeBracketExpenseDiff / incomeBracketPeerMonthlyExpense) * 100) : 0;
+  const incomeBracketSavingsRateDiff = Math.round((savingsRateUser - incomeBracket.savingsRate) * 10) / 10;
+
+  // 東証プライム上場企業社員との比較（総資産・年収・支出・貯蓄率）
+  const primeAssetPercentile = useMemo(
+    () => estimatePercentile(totalNetWorth / 10000, PRIME_STATS.assetMean, PRIME_STATS.assetMedian),
+    [totalNetWorth]
+  );
+  const primeAssetDistribution = useMemo(() => generateDistributionCurve(PRIME_STATS.assetMean, PRIME_STATS.assetMedian), []);
+  const primeIncomePercentile = useMemo(
+    () => estimatePercentile(annualIncomeEstimateGross / 10000, PRIME_STATS.incomeMean, PRIME_STATS.incomeMedian),
+    [annualIncomeEstimateGross]
+  );
+  const primeIncomeDistribution = useMemo(() => generateDistributionCurve(PRIME_STATS.incomeMean, PRIME_STATS.incomeMedian), []);
+  const primePeerMonthlyExpense = PRIME_STATS.monthlyExpense * 10000;
+  const primeExpenseDiff = totalExpense - primePeerMonthlyExpense;
+  const primeExpenseDiffPct = primePeerMonthlyExpense > 0 ? Math.round((primeExpenseDiff / primePeerMonthlyExpense) * 100) : 0;
+  const primeSavingsRateDiff = Math.round((savingsRateUser - PRIME_STATS.savingsRate) * 10) / 10;
+
   const addHolding = () => {
     if (!holdingInput.name || !holdingInput.amount) return;
     setHoldings([...holdings, { id: Date.now(), name: holdingInput.name, amount: Number(holdingInput.amount) || 0, rate: Number(holdingInput.rate) || 0 }]);
@@ -672,6 +734,13 @@ export default function MyBanker() {
     setOtherHoldingInput({ name: "", amount: "", rate: "" });
   };
   const removeOtherHolding = (id) => setOtherHoldings(otherHoldings.filter((h) => h.id !== id));
+
+  const addSideIncome = () => {
+    if (!sideIncomeInput.amount) return;
+    setSideIncomes([...sideIncomes, { id: Date.now(), name: sideIncomeInput.name || "副業", amount: Number(sideIncomeInput.amount) || 0 }]);
+    setSideIncomeInput({ name: "", amount: "" });
+  };
+  const removeSideIncome = (id) => setSideIncomes(sideIncomes.filter((s) => s.id !== id));
   const pickOtherPreset = (p) => {
     setOtherHoldingInput({ name: p.name, amount: otherHoldingInput.amount, rate: String(p.rate) });
     setShowOtherSuggest(false);
@@ -725,6 +794,7 @@ export default function MyBanker() {
   const sharedProps = {
     form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio,
     bonusHandling, setBonusHandling, bonusInputType, setBonusInputType,
+    sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome,
     detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, totalExpense, insuranceRatio,
     riskProfile, setRiskProfile,
     monthlyFree, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder,
@@ -744,6 +814,10 @@ export default function MyBanker() {
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
     myReferralCode, incomingReferralCode,
+    incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
+    incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
+    primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
+    primePeerMonthlyExpense, primeExpenseDiff, primeExpenseDiffPct, primeSavingsRateDiff,
     expenseLogs, expenseLogInput, setExpenseLogInput, expenseLogItems, setExpenseLogItems, addExpenseLog, expenseProjection,
     totalNetWorth,
   };
@@ -829,7 +903,7 @@ function NumInput({ value, onChange, placeholder }) {
   return <input style={styles.input} value={display} onChange={handleChange} inputMode="numeric" placeholder={placeholder} />;
 }
 
-function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack }) {
+function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome }) {
   const bonusAnnualVal = Number(form.bonusAnnual) || 0;
   return (
     <div style={styles.card}>
@@ -869,6 +943,37 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
         </div>
       )}
       <p style={styles.hint}>手取り率は年収帯によって変わるため、年収に応じた目安（独身・扶養なし想定の簡易モデル）で計算しています。</p>
+
+      <div style={{ marginTop: 10 }}>
+        {!showSideIncome ? (
+          <button style={styles.sideIncomeToggle} onClick={() => setShowSideIncome(true)}>+ 副業・副収入がある場合はこちら</button>
+        ) : (
+          <div style={styles.nisaTargetBox}>
+            <span style={styles.fieldLabel}>副業・副収入（複数登録できます）</span>
+            {sideIncomes.map((s) => (
+              <div key={s.id} style={styles.nisaSplitRow}>
+                <span style={styles.nisaSplitLabel}>{s.name}</span>
+                <div style={styles.allocRight}>
+                  <span style={styles.allocPct}>¥{fmt(s.amount)}/月</span>
+                  <button style={styles.removeBtn} onClick={() => removeSideIncome(s.id)}>×</button>
+                </div>
+              </div>
+            ))}
+            <div style={styles.otherAssetCard}>
+              <div style={styles.otherAssetCardTop}>
+                <input style={styles.otherAssetLabelInput} value={sideIncomeInput.name} placeholder="副業名・メモ（任意）" onChange={(e) => setSideIncomeInput({ ...sideIncomeInput, name: e.target.value })} />
+              </div>
+              <div style={styles.fieldInputRow}>
+                <NumInput value={sideIncomeInput.amount} onChange={(e) => setSideIncomeInput({ ...sideIncomeInput, amount: e.target.value })} placeholder="月収" />
+                <span style={styles.suffix}>円/月</span>
+              </div>
+            </div>
+            <button style={styles.addRowBtn} onClick={addSideIncome}>+ 追加する</button>
+            {sideIncomeMonthlyTotal > 0 && <p style={styles.hint}>副業収入の合計：月 ¥{fmt(sideIncomeMonthlyTotal)}（年収・自由資金の計算に反映されます）</p>}
+            <button style={{ ...styles.ghostBtn, marginTop: 8 }} onClick={() => setShowSideIncome(false)}>閉じる</button>
+          </div>
+        )}
+      </div>
 
       <div style={styles.divider} />
       <div style={styles.grid2}>
@@ -1292,7 +1397,31 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [copied, setCopied] = useState(false);
-  if (isPremium) return <div>{children}</div>;
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  const handlePortal = async () => {
+    setPortalLoading(true);
+    try {
+      await openBillingPortal();
+    } catch (err) {
+      setErrorMsg("エラー: " + err.message);
+      setPortalLoading(false);
+    }
+  };
+
+  if (isPremium) {
+    return (
+      <div>
+        {children}
+        <div style={styles.cancelBox}>
+          <button style={styles.ghostBtn} onClick={handlePortal} disabled={portalLoading}>
+            {portalLoading ? "管理ページへ移動中..." : "解約・お支払い方法の管理"}
+          </button>
+          {errorMsg && <p style={styles.warnText}>{errorMsg}</p>}
+        </div>
+      </div>
+    );
+  }
   const sampleHighlightIdx = SAMPLE_INCOME_DISTRIBUTION.findIndex((d) => d.highlight);
 
   const referralUrl = myReferralCode
@@ -1383,117 +1512,275 @@ function RankingPanel(props) {
     expenseCategoryComparison, savingsRatePeer, savingsRateUser, savingsRateDiff,
     growthRateInfo, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
     myReferralCode, incomingReferralCode,
+    incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
+    incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
+    primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
+    primePeerMonthlyExpense, primeExpenseDiff, primeExpenseDiffPct, primeSavingsRateDiff,
   } = props;
+  const [category, setCategory] = useState("age"); // age | income | prime
   const ageStats = AGE_STATS[ageDecade];
   const incomeStats = INCOME_STATS[ageDecade];
   const assetHighlightIdx = findBucketIndex(assetDistribution, totalNetWorth / 10000);
   const incomeHighlightIdx = findBucketIndex(incomeDistribution, annualIncomeEstimateGross / 10000);
+  const incomeBracketAssetHighlightIdx = findBucketIndex(incomeBracketAssetDistribution, totalNetWorth / 10000);
+  const primeAssetHighlightIdx = findBucketIndex(primeAssetDistribution, totalNetWorth / 10000);
+  const primeIncomeHighlightIdx = findBucketIndex(primeIncomeDistribution, annualIncomeEstimateGross / 10000);
+
+  const categories = [
+    { key: "age", label: "同年代との比較" },
+    { key: "income", label: "同収入との比較" },
+    { key: "prime", label: "東証プライム上場企業社員との比較" },
+  ];
 
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>ランキング</p>
-      <h2 style={styles.h2}>同年代（{ageDecade}代・{userAge}歳）との比較</h2>
+      <h2 style={styles.h2}>自分の立ち位置を見てみましょう</h2>
 
-      <div style={styles.percentileRow}>
-        <div style={styles.percentileBig}>上位 {assetPercentile}%</div>
-        <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）が同年代の中でこの位置にいる目安です</div>
+      <div style={styles.categoryPickerRow}>
+        {categories.map((c) => (
+          <button key={c.key} onClick={() => setCategory(c.key)} style={category === c.key ? styles.pillActive : styles.pill}>{c.label}</button>
+        ))}
       </div>
 
-      {isPremium && (
+      {category === "age" && (
         <>
-          <div style={{ marginTop: 16 }}>
-            <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={assetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
-                <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
-                <Tooltip formatter={(v) => `${v}%`} />
-                <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-                  {assetDistribution.map((entry, i) => (
-                    <Cell key={i} fill={i === assetHighlightIdx ? "#B5582E" : "#3D5A99"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
-            <div style={styles.statPairRow}>
-              <span>平均 ¥{fmt(ageStats.mean * 10000)}</span>
-              <span>中央値 ¥{fmt(ageStats.median * 10000)}</span>
-            </div>
-            <p style={styles.chartNote}>※ 平均値・中央値から推定した分布モデルで、実際の刻み別統計ではありません。</p>
+          <p style={styles.chartTitle}>同年代（{ageDecade}代・{userAge}歳）との比較</p>
+          <div style={styles.percentileRow}>
+            <div style={styles.percentileBig}>上位 {assetPercentile}%</div>
+            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）が同年代の中でこの位置にいる目安です</div>
           </div>
+          {isPremium && (
+            <div style={{ marginTop: 16 }}>
+              <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={assetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${v}%`} />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {assetDistribution.map((entry, i) => (
+                      <Cell key={i} fill={i === assetHighlightIdx ? "#B5582E" : "#3D5A99"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
+              <div style={styles.statPairRow}>
+                <span>平均 ¥{fmt(ageStats.mean * 10000)}</span>
+                <span>中央値 ¥{fmt(ageStats.median * 10000)}</span>
+              </div>
+              <p style={styles.chartNote}>※ 平均値・中央値から推定した分布モデルで、実際の刻み別統計ではありません。</p>
+            </div>
+          )}
+
+          <div style={styles.divider} />
+
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
+            <div>
+              <p style={styles.chartTitle}>年収の同年代比較</p>
+              <div style={styles.percentileRow}>
+                <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {incomePercentile}%</div>
+                <div style={styles.percentileNote}>想定年収（額面 ¥{fmt(annualIncomeEstimateGross)}）の位置の目安です</div>
+              </div>
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={incomeDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${v}%`} />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {incomeDistribution.map((entry, i) => (
+                      <Cell key={i} fill={i === incomeHighlightIdx ? "#B5582E" : "#A8527A"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
+              <div style={styles.statPairRow}>
+                <span>平均 ¥{fmt(incomeStats.mean * 10000)}</span>
+                <span>中央値 ¥{fmt(incomeStats.median * 10000)}</span>
+              </div>
+              <p style={styles.chartNote}>※ doda「平均年収ランキング2025」（2025年12月発表）の年代別データを参考にした概算です。60代・70代は同調査の対象外のため独自の概算です。</p>
+
+              <div style={styles.divider} />
+
+              <p style={styles.chartTitle}>支出の同年代比較（月額・費目別）</p>
+              <div style={styles.statusBanner2(expenseDiffVsPeer <= 0)}>
+                合計で同年代平均（¥{fmt(peerMonthlyExpense)}）より{expenseDiffVsPeer > 0 ? `¥${fmt(Math.abs(expenseDiffVsPeer))}（+${Math.abs(expenseDiffPct)}%）多い` : `¥${fmt(Math.abs(expenseDiffVsPeer))}（${expenseDiffPct}%）少ない`}目安です
+              </div>
+              <div style={styles.ledger}>
+                {expenseCategoryComparison.map((c) => (
+                  <div key={c.label} style={styles.ledgerRow}>
+                    <span style={styles.ledgerLabel}>{c.label}</span>
+                    <span style={{ ...styles.ledgerValue, color: c.diffPct > 0 ? "#9A4A1F" : "#2F6B4F" }}>
+                      {c.diffPct > 0 ? `+${c.diffPct}%` : `${c.diffPct}%`}（¥{fmt(c.userAmount)} / 平均¥{fmt(c.peerAmount)}）
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p style={styles.chartNote}>※ 費目別シェアは総務省「家計調査」の単身世帯データを参考にした概算配分です。</p>
+
+              <div style={styles.divider} />
+
+              <p style={styles.chartTitle}>貯蓄率の同年代比較</p>
+              <div style={styles.percentileRow}>
+                <div style={{ ...styles.percentileBig, fontSize: 22, color: savingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
+                <div style={styles.percentileNote}>収入に対する貯蓄・投資の割合。同年代平均は{savingsRatePeer}%です（{savingsRateDiff >= 0 ? "+" : ""}{savingsRateDiff}pt）</div>
+              </div>
+
+              <div style={styles.divider} />
+
+              <p style={styles.chartTitle}>資産成長率ランキング</p>
+              {growthRateInfo ? (
+                <div style={styles.percentileRow}>
+                  <div style={{ ...styles.percentileBig, fontSize: 22, color: growthRateInfo.aboveBenchmark ? "#2F6B4F" : "#9A4A1F" }}>{growthRateInfo.growthPct}%</div>
+                  <div style={styles.percentileNote}>記録を始めてからの資産増加率。一般的な資産形成ペースの目安（年率{growthRateInfo.benchmark}%）と比べて{growthRateInfo.aboveBenchmark ? "順調なペース" : "やや緩やかなペース"}です</div>
+                </div>
+              ) : (
+                <p style={styles.hint}>資産記録を2回以上登録すると、成長率が表示されます。</p>
+              )}
+            </div>
+          </PaywallGate>
         </>
       )}
 
-      <div style={styles.divider} />
-
-      <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
-        <div>
-          <p style={styles.chartTitle}>年収の同年代比較</p>
+      {category === "income" && (
+        <>
+          <p style={styles.chartTitle}>同収入帯（{incomeBracket.label}）との比較</p>
           <div style={styles.percentileRow}>
-            <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {incomePercentile}%</div>
-            <div style={styles.percentileNote}>想定年収（額面 ¥{fmt(annualIncomeEstimateGross)}）の位置の目安です</div>
+            <div style={styles.percentileBig}>上位 {incomeBracketAssetPercentile}%</div>
+            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）が同じ収入帯の中でこの位置にいる目安です</div>
           </div>
-          <ResponsiveContainer width="100%" height={140}>
-            <BarChart data={incomeDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
-              <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
-              <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
-              <Tooltip formatter={(v) => `${v}%`} />
-              <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-                {incomeDistribution.map((entry, i) => (
-                  <Cell key={i} fill={i === incomeHighlightIdx ? "#B5582E" : "#A8527A"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
-          <div style={styles.statPairRow}>
-            <span>平均 ¥{fmt(incomeStats.mean * 10000)}</span>
-            <span>中央値 ¥{fmt(incomeStats.median * 10000)}</span>
-          </div>
-          <p style={styles.chartNote}>※ doda「平均年収ランキング2025」（2025年12月発表）の年代別データを参考にした概算です。60代・70代は同調査の対象外のため独自の概算です。</p>
-
-          <div style={styles.divider} />
-
-          <p style={styles.chartTitle}>支出の同年代比較（月額・費目別）</p>
-          <div style={styles.statusBanner2(expenseDiffVsPeer <= 0)}>
-            合計で同年代平均（¥{fmt(peerMonthlyExpense)}）より{expenseDiffVsPeer > 0 ? `¥${fmt(Math.abs(expenseDiffVsPeer))}（+${Math.abs(expenseDiffPct)}%）多い` : `¥${fmt(Math.abs(expenseDiffVsPeer))}（${expenseDiffPct}%）少ない`}目安です
-          </div>
-          <div style={styles.ledger}>
-            {expenseCategoryComparison.map((c) => (
-              <div key={c.label} style={styles.ledgerRow}>
-                <span style={styles.ledgerLabel}>{c.label}</span>
-                <span style={{ ...styles.ledgerValue, color: c.diffPct > 0 ? "#9A4A1F" : "#2F6B4F" }}>
-                  {c.diffPct > 0 ? `+${c.diffPct}%` : `${c.diffPct}%`}（¥{fmt(c.userAmount)} / 平均¥{fmt(c.peerAmount)}）
-                </span>
+          {isPremium && (
+            <div style={{ marginTop: 16 }}>
+              <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={incomeBracketAssetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${v}%`} />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {incomeBracketAssetDistribution.map((entry, i) => (
+                      <Cell key={i} fill={i === incomeBracketAssetHighlightIdx ? "#B5582E" : "#3D5A99"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
+              <div style={styles.statPairRow}>
+                <span>平均 ¥{fmt(incomeBracket.assetMean * 10000)}</span>
+                <span>中央値 ¥{fmt(incomeBracket.assetMedian * 10000)}</span>
               </div>
-            ))}
-          </div>
-          <p style={styles.chartNote}>※ 費目別シェアは総務省「家計調査」の単身世帯データを参考にした概算配分です。</p>
-
-          <div style={styles.divider} />
-
-          <p style={styles.chartTitle}>貯蓄率の同年代比較</p>
-          <div style={styles.percentileRow}>
-            <div style={{ ...styles.percentileBig, fontSize: 22, color: savingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
-            <div style={styles.percentileNote}>収入に対する貯蓄・投資の割合。同年代平均は{savingsRatePeer}%です（{savingsRateDiff >= 0 ? "+" : ""}{savingsRateDiff}pt）</div>
-          </div>
-
-          <div style={styles.divider} />
-
-          <p style={styles.chartTitle}>資産成長率ランキング</p>
-          {growthRateInfo ? (
-            <div style={styles.percentileRow}>
-              <div style={{ ...styles.percentileBig, fontSize: 22, color: growthRateInfo.aboveBenchmark ? "#2F6B4F" : "#9A4A1F" }}>{growthRateInfo.growthPct}%</div>
-              <div style={styles.percentileNote}>記録を始めてからの資産増加率。一般的な資産形成ペースの目安（年率{growthRateInfo.benchmark}%）と比べて{growthRateInfo.aboveBenchmark ? "順調なペース" : "やや緩やかなペース"}です</div>
+              <p style={styles.chartNote}>※ 年収帯ごとの資産・収入の相関傾向を踏まえた推定モデルです。実際の刻み別統計ではありません。</p>
             </div>
-          ) : (
-            <p style={styles.hint}>資産記録を2回以上登録すると、成長率が表示されます。</p>
           )}
-        </div>
-      </PaywallGate>
+
+          <div style={styles.divider} />
+
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
+            <div>
+              <p style={styles.chartTitle}>支出の同収入帯比較</p>
+              <div style={styles.statusBanner2(incomeBracketExpenseDiff <= 0)}>
+                合計で同収入帯平均（¥{fmt(incomeBracketPeerMonthlyExpense)}）より{incomeBracketExpenseDiff > 0 ? `¥${fmt(Math.abs(incomeBracketExpenseDiff))}（+${Math.abs(incomeBracketExpenseDiffPct)}%）多い` : `¥${fmt(Math.abs(incomeBracketExpenseDiff))}（${incomeBracketExpenseDiffPct}%）少ない`}目安です
+              </div>
+              <p style={styles.chartNote}>※ 同じ年収帯の人と比べた、総支出の概算です。</p>
+
+              <div style={styles.divider} />
+
+              <p style={styles.chartTitle}>貯蓄率の同収入帯比較</p>
+              <div style={styles.percentileRow}>
+                <div style={{ ...styles.percentileBig, fontSize: 22, color: incomeBracketSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
+                <div style={styles.percentileNote}>同収入帯平均は{incomeBracket.savingsRate}%です（{incomeBracketSavingsRateDiff >= 0 ? "+" : ""}{incomeBracketSavingsRateDiff}pt）</div>
+              </div>
+              <p style={styles.chartNote}>※ 年収帯と資産・貯蓄率の一般的な相関傾向を踏まえた推定値です（単一の公的統計ではありません）。</p>
+            </div>
+          </PaywallGate>
+        </>
+      )}
+
+      {category === "prime" && (
+        <>
+          <p style={styles.chartTitle}>東証プライム上場企業社員との比較</p>
+          <div style={styles.percentileRow}>
+            <div style={styles.percentileBig}>上位 {primeAssetPercentile}%</div>
+            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）がプライム上場企業社員の中でこの位置にいる目安です</div>
+          </div>
+          {isPremium && (
+            <div style={{ marginTop: 16 }}>
+              <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={primeAssetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${v}%`} />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {primeAssetDistribution.map((entry, i) => (
+                      <Cell key={i} fill={i === primeAssetHighlightIdx ? "#B5582E" : "#3D5A99"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
+              <div style={styles.statPairRow}>
+                <span>平均 ¥{fmt(PRIME_STATS.assetMean * 10000)}</span>
+                <span>中央値 ¥{fmt(PRIME_STATS.assetMedian * 10000)}</span>
+              </div>
+              <p style={styles.chartNote}>※ 資産については直接の公表統計が無く、年収水準からの推定値です。</p>
+            </div>
+          )}
+
+          <div style={styles.divider} />
+
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
+            <div>
+              <p style={styles.chartTitle}>年収の比較</p>
+              <div style={styles.percentileRow}>
+                <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {primeIncomePercentile}%</div>
+                <div style={styles.percentileNote}>想定年収（額面 ¥{fmt(annualIncomeEstimateGross)}）の位置の目安です</div>
+              </div>
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={primeIncomeDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${v}%`} />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {primeIncomeDistribution.map((entry, i) => (
+                      <Cell key={i} fill={i === primeIncomeHighlightIdx ? "#B5582E" : "#A8527A"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
+              <div style={styles.statPairRow}>
+                <span>平均 ¥{fmt(PRIME_STATS.incomeMean * 10000)}</span>
+                <span>中央値 ¥{fmt(PRIME_STATS.incomeMedian * 10000)}</span>
+              </div>
+              <p style={styles.chartNote}>※ 出典：帝国データバンク「上場企業の『平均年間給与』動向調査（2024年度決算）」東証プライム上場企業平均763.3万円。中央値は推定です。</p>
+
+              <div style={styles.divider} />
+
+              <p style={styles.chartTitle}>支出の比較</p>
+              <div style={styles.statusBanner2(primeExpenseDiff <= 0)}>
+                合計でプライム上場企業社員平均（¥{fmt(primePeerMonthlyExpense)}）より{primeExpenseDiff > 0 ? `¥${fmt(Math.abs(primeExpenseDiff))}（+${Math.abs(primeExpenseDiffPct)}%）多い` : `¥${fmt(Math.abs(primeExpenseDiff))}（${primeExpenseDiffPct}%）少ない`}目安です
+              </div>
+
+              <div style={styles.divider} />
+
+              <p style={styles.chartTitle}>貯蓄率の比較</p>
+              <div style={styles.percentileRow}>
+                <div style={{ ...styles.percentileBig, fontSize: 22, color: primeSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
+                <div style={styles.percentileNote}>プライム上場企業社員平均は{PRIME_STATS.savingsRate}%です（{primeSavingsRateDiff >= 0 ? "+" : ""}{primeSavingsRateDiff}pt）</div>
+              </div>
+              <p style={styles.chartNote}>※ 支出・貯蓄率は年収水準からの推定値で、プライム上場企業社員を対象とした直接の統計ではありません。</p>
+            </div>
+          </PaywallGate>
+        </>
+      )}
     </div>
   );
 }
@@ -1598,7 +1885,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
           )}
         </div>
 
-        <AllocRow label="その他運用" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="所得控除など税制メリットがある場合があります" accent="#7A5C3D" />
+        <AllocRow label="その他運用" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="暗号資産、FX、ポイントなど" accent="#7A5C3D" />
 
         <div style={styles.nisaTargetBox}>
           <span style={styles.fieldLabel}>このその他運用額（¥{fmt(allocNums.other)}）も、暗号資産・FX・ポイントなどの項目に分けて%で割り当てられます（任意）</span>
@@ -1700,9 +1987,15 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
     <div style={styles.card}>
       <p style={styles.eyebrow}>保有資産</p>
       <h2 style={styles.h2}>資産を更新・登録しましょう</h2>
+
+      <div style={styles.summaryItemLg}>
+        <span style={styles.summaryLabel}>合計資産（貯金＋株式・投資信託＋その他資産）</span>
+        <span style={styles.summaryValueLg}>¥{fmt((Number(assetInput.savings) || 0) + totalHoldingsValue + otherAssetsTotal)}</span>
+      </div>
+
       <p style={styles.hint}>本日（{todayLabel}）の記録としてこの内容が保存されます。同じ日にもう一度記録すると、その日の内容が更新されます。</p>
 
-      <p style={styles.chartTitle}>資産カテゴリの更新</p>
+      <p style={styles.chartTitle}>資産カテゴリ</p>
       <div style={styles.grid2}>
         <Field label="貯金・現金" value={assetInput.savings} onChange={(e) => setAssetInput({ ...assetInput, savings: e.target.value })} suffix="円" />
         <div style={styles.field}>
@@ -1714,7 +2007,6 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
           <div style={styles.readOnlyValueRow}>¥{fmt(otherAssetsTotal)}</div>
         </div>
       </div>
-      <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={addAssetLog}>{todayLabel}の記録として保存する</button>
       {last && last.impliedSpending !== undefined && (
         <div style={styles.statusBanner2(last.impliedSpending <= 0)}>前回記録との差分から、今期の実質支出は約 ¥{fmt(last.impliedSpending)} と推定されます。</div>
       )}
@@ -1797,7 +2089,10 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
         removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
         totalHoldingsValue={totalHoldingsValue}
       />
-      <p style={styles.hint}>登録・編集した内容は、上の「{todayLabel}の記録として保存する」ボタンを押すと記録に反映されます。</p>
+
+      <div style={styles.divider} />
+      <button style={{ ...styles.primaryBtn, width: "100%" }} onClick={addAssetLog}>{todayLabel}の記録として保存する</button>
+      <p style={styles.hint}>貯金、その他資産、株式・投資信託、すべての入力・編集が終わったら、このボタンを押してください。</p>
     </div>
   );
 }
@@ -1940,6 +2235,9 @@ function SettingsPanel(props) {
     { key: "income", label: "収入" }, { key: "expense", label: "支出" },
     { key: "risk", label: "運用方針" }, { key: "review", label: "振り返り設定" },
   ];
+  const idx = sections.findIndex((s) => s.key === section);
+  const goNext = () => setSection(sections[(idx + 1) % sections.length].key);
+  const goBack = () => setSection(sections[(idx - 1 + sections.length) % sections.length].key);
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>設定</p>
@@ -1947,9 +2245,9 @@ function SettingsPanel(props) {
       <div style={styles.toggleRow}>
         {sections.map((s) => <button key={s.key} style={section === s.key ? styles.toggleActive : styles.toggleInactive} onClick={() => setSection(s.key)}>{s.label}</button>)}
       </div>
-      {section === "income" && <IncomeStep {...props} onNext={() => {}} onBack={() => {}} />}
-      {section === "expense" && <ExpenseStep {...props} onNext={() => {}} onBack={() => {}} />}
-      {section === "risk" && <RiskStep riskProfile={props.riskProfile} setRiskProfile={props.setRiskProfile} onNext={() => {}} onBack={() => {}} />}
+      {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} />}
+      {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} />}
+      {section === "risk" && <RiskStep riskProfile={props.riskProfile} setRiskProfile={props.setRiskProfile} onNext={goNext} onBack={goBack} />}
       {section === "review" && <ReviewSettingsInner {...props} />}
     </div>
   );
@@ -2046,6 +2344,7 @@ const styles = {
   riskNote: { fontSize: 11, opacity: 0.7, marginTop: 6, lineHeight: 1.5 },
   riskPicker: { display: "flex", gap: 8 },
   riskPickerRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 10 },
+  categoryPickerRow: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   resetLink: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 12, cursor: "pointer", textDecoration: "underline" },
   pill: { border: "1px solid #D8E2DA", background: "transparent", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#1F2630" },
   pillActive: { border: "1px solid #1F2630", background: "#1F2630", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#fff" },
@@ -2103,6 +2402,8 @@ const styles = {
   paywallNote: { fontSize: 11.5, color: "#6B6248" },
   paywallBtnRow: { display: "flex", gap: 10, flexWrap: "wrap" },
   testToggleBtn: { marginTop: 14, background: "transparent", border: "none", color: "#3D5A99", fontSize: 11, textDecoration: "underline", cursor: "pointer" },
+  cancelBox: { marginTop: 20, paddingTop: 14, borderTop: "1px solid #E3E9E4" },
+  sideIncomeToggle: { background: "transparent", border: "none", color: "#6B6248", fontSize: 12, textDecoration: "underline", cursor: "pointer", padding: 0 },
   statPairRow: { display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#5C6862", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" },
   youAreHereNote: { fontSize: 11, color: "#B5582E", marginTop: 4 },
 };
