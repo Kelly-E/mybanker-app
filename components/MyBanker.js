@@ -595,7 +595,15 @@ export default function MyBanker() {
       holdingItems: holdings.map((h) => ({ name: h.name, amount: h.amount, rate: h.rate })),
       total,
     };
-    if (prev) entry.impliedSpending = Math.round(monthlyIncomeComputed - (total - prev.total));
+    if (prev) {
+      const prevDate = prev.date ? new Date(prev.date.replace(/\//g, "-")) : null;
+      const todayDate = new Date(todayKey.replace(/\//g, "-"));
+      const daysElapsed = prevDate && !isNaN(prevDate.getTime()) ? Math.max(1, Math.round((todayDate - prevDate) / 86400000)) : 30;
+      const proratedIncome = monthlyIncomeComputed * (daysElapsed / 30);
+      const assetChange = total - prev.total;
+      entry.impliedSpending = Math.round(proratedIncome - assetChange);
+      entry.impliedSpendingDetail = { daysElapsed, proratedIncome: Math.round(proratedIncome), assetChange: Math.round(assetChange), prevDate: prev.date };
+    }
     if (existingIdx >= 0) {
       const next = [...assetLogs];
       next[existingIdx] = entry;
@@ -610,6 +618,20 @@ export default function MyBanker() {
     setAssetLogs(assetLogs.map((l) => {
       if (l.id !== id) return l;
       const updated = { ...l, [field]: value };
+      updated.total = (Number(updated.savings) || 0) + (Number(updated.stocks) || 0) + (Number(updated.other) || 0);
+      return updated;
+    }));
+  };
+
+  const updateAssetLogItemAmount = (logId, arrKey, idx, value) => {
+    setAssetLogs(assetLogs.map((l) => {
+      if (l.id !== logId) return l;
+      const arr = [...(l[arrKey] || [])];
+      arr[idx] = { ...arr[idx], amount: value };
+      const sum = arr.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+      const updated = { ...l, [arrKey]: arr };
+      if (arrKey === "holdingItems") updated.stocks = String(sum);
+      if (arrKey === "otherItems") updated.other = String(sum);
       updated.total = (Number(updated.savings) || 0) + (Number(updated.stocks) || 0) + (Number(updated.other) || 0);
       return updated;
     }));
@@ -845,7 +867,7 @@ export default function MyBanker() {
     otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset,
     otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver,
     reviewSpan, setReviewSpan, email, setEmail,
-    assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, deleteAssetLog, goalCompareData,
+    assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData,
     incomeLogInput, setIncomeLogInput, addIncomeLog, incomeLogs, incomeProjection,
     holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
     otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal,
@@ -1439,7 +1461,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
 
       {goalCompareData.length > 1 && (
         <div style={styles.chartCard}>
-          <p style={styles.chartTitle}>計画上の想定 vs 実際の資産</p>
+          <p style={styles.chartTitle}>資産の推移予想 vs 実際の資産</p>
           <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
@@ -1447,7 +1469,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
               <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
               <Tooltip formatter={(v) => `¥${fmt(v)}`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} name="資産の推移予想" />
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer></TouchDismissChart>
@@ -1457,24 +1479,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
 
       {diff !== null && (
         <div style={styles.statusBanner2(diff >= 0)}>
-          {diff >= 0 ? `計画より ¥${fmt(diff)} 多く資産が積み上がっています。このペースを維持しましょう。` : `計画より ¥${fmt(Math.abs(diff))} 資産の積み上がりが少ない状況です。配分シミュレーターで見直してみましょうか。`}
-        </div>
-      )}
-
-      {goalCompareData.length > 1 && (
-        <div style={styles.chartCard}>
-          <p style={styles.chartTitle}>計画上の想定 vs 実際の資産（振り返り）</p>
-          <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
-            <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
-              <Tooltip formatter={(v) => `¥${fmt(v)}`} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
-              <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer></TouchDismissChart>
+          {diff >= 0 ? `予想より ¥${fmt(diff)} 多く資産が積み上がっています。このペースを維持しましょう。` : `予想より ¥${fmt(Math.abs(diff))} 資産の積み上がりが少ない状況です。配分シミュレーターで見直してみましょうか。`}
         </div>
       )}
 
@@ -1725,8 +1730,8 @@ function RankingPanel(props) {
 
               <p style={styles.chartTitle}>貯蓄率の同年代比較</p>
               <div style={styles.percentileRow}>
-                <div style={{ ...styles.percentileBig, fontSize: 22, color: savingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
-                <div style={styles.percentileNote}>収入に対する貯蓄・投資の割合。同年代平均は{savingsRatePeer}%です（{savingsRateDiff >= 0 ? "+" : ""}{savingsRateDiff}pt）</div>
+                <div style={{ ...styles.percentileBig, fontSize: 22, color: savingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateDiff >= 0 ? "+" : ""}{savingsRateDiff}pt</div>
+                <div style={styles.percentileNote}>あなたの貯蓄率は{savingsRateUser}%、同年代平均は{savingsRatePeer}%です</div>
               </div>
 
               <div style={styles.divider} />
@@ -1791,8 +1796,8 @@ function RankingPanel(props) {
 
               <p style={styles.chartTitle}>貯蓄率の同収入帯比較</p>
               <div style={styles.percentileRow}>
-                <div style={{ ...styles.percentileBig, fontSize: 22, color: incomeBracketSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
-                <div style={styles.percentileNote}>同収入帯平均は{incomeBracket.savingsRate}%です（{incomeBracketSavingsRateDiff >= 0 ? "+" : ""}{incomeBracketSavingsRateDiff}pt）</div>
+                <div style={{ ...styles.percentileBig, fontSize: 22, color: incomeBracketSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{incomeBracketSavingsRateDiff >= 0 ? "+" : ""}{incomeBracketSavingsRateDiff}pt</div>
+                <div style={styles.percentileNote}>あなたの貯蓄率は{savingsRateUser}%、同収入帯平均は{incomeBracket.savingsRate}%です</div>
               </div>
               <p style={styles.chartNote}>※ 年収帯と資産・貯蓄率の一般的な相関傾向を踏まえた推定値です（単一の公的統計ではありません）。</p>
             </div>
@@ -1872,8 +1877,8 @@ function RankingPanel(props) {
 
               <p style={styles.chartTitle}>貯蓄率の比較</p>
               <div style={styles.percentileRow}>
-                <div style={{ ...styles.percentileBig, fontSize: 22, color: primeSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
-                <div style={styles.percentileNote}>プライム上場企業の同年代社員平均は{primeStatsForAge.savingsRate}%です（{primeSavingsRateDiff >= 0 ? "+" : ""}{primeSavingsRateDiff}pt）</div>
+                <div style={{ ...styles.percentileBig, fontSize: 22, color: primeSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{primeSavingsRateDiff >= 0 ? "+" : ""}{primeSavingsRateDiff}pt</div>
+                <div style={styles.percentileNote}>あなたの貯蓄率は{savingsRateUser}%、プライム上場企業の同年代社員平均は{primeStatsForAge.savingsRate}%です</div>
               </div>
               <p style={styles.chartNote}>※ 支出・貯蓄率は年収水準からの推定値で、プライム上場企業社員を対象とした直接の統計ではありません。</p>
             </div>
@@ -2081,9 +2086,10 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
   );
 }
 
-function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, deleteAssetLog, goalCompareData, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog }) {
+function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog }) {
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
   const todayLabel = new Date().toLocaleDateString("ja-JP");
   const sortedLogs = [...assetLogs].sort((a, b) => b.id - a.id);
   return (
@@ -2111,12 +2117,17 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
         </div>
       </div>
       {last && last.impliedSpending !== undefined && (
-        <div style={styles.statusBanner2(last.impliedSpending <= 0)}>前回記録との差分から、今期の実質支出は約 ¥{fmt(last.impliedSpending)} と推定されます。</div>
+        <div style={styles.statusBanner2(last.impliedSpending <= 0)}>
+          前回記録（{last.impliedSpendingDetail?.prevDate}）から{last.impliedSpendingDetail?.daysElapsed}日間、今期の実質支出は約 ¥{fmt(last.impliedSpending)} と推定されます。
+          <div style={styles.calcNote}>
+            計算式：この期間の概算収入 ¥{fmt(last.impliedSpendingDetail?.proratedIncome)}（月収 ¥{fmt(monthlyIncomeComputed)} を日数で換算）− 資産の増減 ¥{fmt(last.impliedSpendingDetail?.assetChange)}（貯金＋株式・投資信託＋その他資産の合計の前回比）
+          </div>
+        </div>
       )}
 
       {goalCompareData.length > 1 && (
         <div style={styles.chartCard}>
-          <p style={styles.chartTitle}>計画上の想定 vs 実際の資産</p>
+          <p style={styles.chartTitle}>資産の推移予想 vs 実際の資産</p>
           <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
@@ -2133,48 +2144,63 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
 
       {sortedLogs.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <p style={styles.chartTitle}>資産の記録履歴（内訳・銘柄ごとも含む）</p>
-          <div style={styles.ledger}>
-            {sortedLogs.map((l) => (
-              <div key={l.id}>
-                <div style={styles.historyRow} onClick={() => setOpenLogId(openLogId === l.id ? null : l.id)}>
-                  <span style={styles.ledgerLabel}>{l.date}</span>
-                  <span style={styles.ledgerValue}>¥{fmt(l.total)}</span>
-                </div>
-                {openLogId === l.id && (
-                  <div style={styles.historyDetail}>
-                    <Field label="貯金・現金" value={l.savings} onChange={(e) => updateAssetLog(l.id, "savings", e.target.value)} suffix="円" />
-
-                    {l.holdingItems && l.holdingItems.length > 0 && (
-                      <>
-                        <p style={styles.chartTitle}>株式・投資信託の内訳（この日のスナップショット）</p>
-                        {l.holdingItems.map((it, i) => (
-                          <div key={i} style={styles.ledgerRow}>
-                            <span style={styles.ledgerLabel}>{it.name}</span>
-                            <span style={styles.ledgerNote}>¥{fmt(it.amount)}（年率{it.rate}%）</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    {l.otherItems && l.otherItems.length > 0 && (
-                      <>
-                        <p style={styles.chartTitle}>その他資産の内訳（この日のスナップショット）</p>
-                        {l.otherItems.map((it, i) => (
-                          <div key={i} style={styles.ledgerRow}>
-                            <span style={styles.ledgerLabel}>{it.label}</span>
-                            <span style={styles.ledgerNote}>¥{fmt(it.amount)}</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    <button style={styles.deleteLogBtn} onClick={() => { deleteAssetLog(l.id); setOpenLogId(null); }}>この記録を削除する</button>
-                  </div>
-                )}
+          {!showHistory ? (
+            <button style={styles.smallLinkBtn} onClick={() => setShowHistory(true)}>過去のデータを確認/編集する</button>
+          ) : (
+            <>
+              <div style={styles.chartTitleRow}>
+                <p style={styles.chartTitle}>資産の記録履歴（内訳・銘柄ごとも含む）</p>
+                <button style={styles.smallLinkBtn} onClick={() => setShowHistory(false)}>閉じる</button>
               </div>
-            ))}
-          </div>
+              <div style={styles.ledger}>
+                {sortedLogs.map((l) => (
+                  <div key={l.id}>
+                    <div style={styles.historyRow} onClick={() => setOpenLogId(openLogId === l.id ? null : l.id)}>
+                      <span style={styles.ledgerLabel}>{l.date}</span>
+                      <span style={styles.ledgerValue}>¥{fmt(l.total)}</span>
+                    </div>
+                    {openLogId === l.id && (
+                      <div style={styles.historyDetail}>
+                        <Field label="貯金・現金" value={l.savings} onChange={(e) => updateAssetLog(l.id, "savings", e.target.value)} suffix="円" />
+
+                        {l.holdingItems && l.holdingItems.length > 0 && (
+                          <>
+                            <p style={styles.chartTitle}>株式・投資信託の内訳（この日のスナップショット）</p>
+                            {l.holdingItems.map((it, i) => (
+                              <div key={i} style={styles.ledgerRow}>
+                                <span style={styles.ledgerLabel}>{it.name}（年率{it.rate}%）</span>
+                                <div style={styles.fieldInputRow}>
+                                  <NumInput value={it.amount} onChange={(e) => updateAssetLogItemAmount(l.id, "holdingItems", i, e.target.value)} />
+                                  <span style={styles.suffix}>円</span>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+
+                        {l.otherItems && l.otherItems.length > 0 && (
+                          <>
+                            <p style={styles.chartTitle}>その他資産の内訳（この日のスナップショット）</p>
+                            {l.otherItems.map((it, i) => (
+                              <div key={i} style={styles.ledgerRow}>
+                                <span style={styles.ledgerLabel}>{it.label}</span>
+                                <div style={styles.fieldInputRow}>
+                                  <NumInput value={it.amount} onChange={(e) => updateAssetLogItemAmount(l.id, "otherItems", i, e.target.value)} />
+                                  <span style={styles.suffix}>円</span>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+
+                        <button style={styles.deleteLogBtn} onClick={() => { deleteAssetLog(l.id); setOpenLogId(null); }}>この記録を削除する</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -2472,7 +2498,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
               <Field label="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} type="text" />
               <label style={styles.field}>
                 <span style={styles.fieldLabel}>パスワード（6文字以上）</span>
-                <input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required />
+                <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required /></div>
               </label>
             </div>
             <div style={styles.btnRow}>
@@ -2487,7 +2513,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
               <Field label="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} type="text" />
               <label style={styles.field}>
                 <span style={styles.fieldLabel}>パスワード</span>
-                <input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
               </label>
             </div>
             <div style={styles.btnRow}>
@@ -2545,11 +2571,11 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
         <div style={styles.grid2}>
           <label style={styles.field}>
             <span style={styles.fieldLabel}>新しいパスワード</span>
-            <input style={styles.input} type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} />
+            <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} /></div>
           </label>
           <label style={styles.field}>
             <span style={styles.fieldLabel}>新しいパスワード（確認）</span>
-            <input style={styles.input} type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} />
+            <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} /></div>
           </label>
         </div>
         <button style={{ ...styles.primaryBtn, marginTop: 10 }} type="submit">パスワードを変更する</button>
@@ -2763,6 +2789,7 @@ const styles = {
   paywallNote: { fontSize: 11.5, color: "#6B6248" },
   paywallBtnRow: { display: "flex", gap: 10, flexWrap: "wrap" },
   testToggleBtn: { marginTop: 14, background: "transparent", border: "none", color: "#3D5A99", fontSize: 11, textDecoration: "underline", cursor: "pointer" },
+  smallLinkBtn: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 11.5, textDecoration: "underline", cursor: "pointer", padding: 0 },
   cancelBox: { marginTop: 20, paddingTop: 14, borderTop: "1px solid #E3E9E4" },
   sideIncomeToggle: { background: "transparent", border: "none", color: "#6B6248", fontSize: 12, textDecoration: "underline", cursor: "pointer", padding: 0 },
   statPairRow: { display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#5C6862", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" },
