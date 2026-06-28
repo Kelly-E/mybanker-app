@@ -14,6 +14,17 @@ const fmtManOku = (v) => {
 };
 const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
+// スマホのタッチ操作だと、指を離してもRechartsのツールチップが残ってしまうことがある。
+// touchEnd時にチャートを強制的に再マウントし、ツールチップの内部状態をリセットする。
+function TouchDismissChart({ children }) {
+  const [resetKey, setResetKey] = useState(0);
+  return (
+    <div onTouchEnd={() => setResetKey((k) => k + 1)} onTouchCancel={() => setResetKey((k) => k + 1)}>
+      <div key={resetKey}>{children}</div>
+    </div>
+  );
+}
+
 function LogoIcon({ size = 22 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
@@ -1410,7 +1421,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
           <button style={chartRange === "near" ? styles.pillActiveSm : styles.pillSm} onClick={() => setChartRange("near")}>5年後まで</button>
           <button style={chartRange === "far" ? styles.pillActiveSm : styles.pillSm} onClick={() => setChartRange("far")}>5〜30年後</button>
         </div>
-        <ResponsiveContainer width="100%" height={220}>
+        <TouchDismissChart><ResponsiveContainer width="100%" height={220}>
           <AreaChart data={projectionView} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#5C6862" }} />
@@ -1422,14 +1433,14 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
               <Area key={key} type="monotone" dataKey={key} stackId="1" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} fill={SERIES_COLORS[i % SERIES_COLORS.length]} fillOpacity={0.45} />
             ))}
           </AreaChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></TouchDismissChart>
         <p style={styles.chartNote}>※ 株式投資は月次の複利、その他資産（暗号資産・FXなど）は年率の複利で概算しています。想定年率自体の確実性は資産ごとに異なります（特に暗号資産は不確実性が高めです）。</p>
       </div>
 
       {goalCompareData.length > 1 && (
         <div style={styles.chartCard}>
           <p style={styles.chartTitle}>計画上の想定 vs 実際の資産</p>
-          <ResponsiveContainer width="100%" height={200}>
+          <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
@@ -1439,7 +1450,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
               <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></TouchDismissChart>
           <p style={styles.chartNote}>※ 資産の記録を保存するたびに、この比較グラフが更新されます。</p>
         </div>
       )}
@@ -1453,7 +1464,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
       {goalCompareData.length > 1 && (
         <div style={styles.chartCard}>
           <p style={styles.chartTitle}>計画上の想定 vs 実際の資産（振り返り）</p>
-          <ResponsiveContainer width="100%" height={200}>
+          <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
@@ -1463,7 +1474,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
               <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></TouchDismissChart>
         </div>
       )}
 
@@ -1542,7 +1553,7 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
           <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {SAMPLE_INCOME_PERCENTILE}%</div>
           <div style={styles.percentileNote}>例：年収の同年代での位置イメージ</div>
         </div>
-        <ResponsiveContainer width="100%" height={140}>
+        <TouchDismissChart><ResponsiveContainer width="100%" height={140}>
           <BarChart data={SAMPLE_INCOME_DISTRIBUTION} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
@@ -1553,7 +1564,7 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
               ))}
             </Bar>
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></TouchDismissChart>
         <p style={styles.youAreHereNote}>● オレンジ＝サンプル上の「あなたの位置」イメージ</p>
         <p style={styles.chartNote}>※ 実際のあなたのデータではなく、画面イメージをつかむためのサンプルです。</p>
       </div>
@@ -1641,7 +1652,7 @@ function RankingPanel(props) {
           {isPremium && (
             <div style={{ marginTop: 16 }}>
               <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
-              <ResponsiveContainer width="100%" height={160}>
+              <TouchDismissChart><ResponsiveContainer width="100%" height={160}>
                 <BarChart data={assetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
@@ -1653,7 +1664,7 @@ function RankingPanel(props) {
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer></TouchDismissChart>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
                 <span>平均 ¥{fmt(ageStats.mean * 10000)}</span>
@@ -1672,7 +1683,7 @@ function RankingPanel(props) {
                 <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {incomePercentile}%</div>
                 <div style={styles.percentileNote}>想定年収（額面 ¥{fmt(annualIncomeEstimateGross)}）の位置の目安です</div>
               </div>
-              <ResponsiveContainer width="100%" height={140}>
+              <TouchDismissChart><ResponsiveContainer width="100%" height={140}>
                 <BarChart data={incomeDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
@@ -1684,7 +1695,7 @@ function RankingPanel(props) {
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer></TouchDismissChart>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
                 <span>平均 ¥{fmt(incomeStats.mean * 10000)}</span>
@@ -1744,7 +1755,7 @@ function RankingPanel(props) {
           {isPremium && (
             <div style={{ marginTop: 16 }}>
               <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
-              <ResponsiveContainer width="100%" height={160}>
+              <TouchDismissChart><ResponsiveContainer width="100%" height={160}>
                 <BarChart data={incomeBracketAssetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
@@ -1756,7 +1767,7 @@ function RankingPanel(props) {
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer></TouchDismissChart>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
                 <span>平均 ¥{fmt(incomeBracket.assetMean * 10000)}</span>
@@ -1799,7 +1810,7 @@ function RankingPanel(props) {
           {isPremium && (
             <div style={{ marginTop: 16 }}>
               <p style={styles.chartTitle}>総資産の分布（推定モデル）</p>
-              <ResponsiveContainer width="100%" height={160}>
+              <TouchDismissChart><ResponsiveContainer width="100%" height={160}>
                 <BarChart data={primeAssetDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
@@ -1811,7 +1822,7 @@ function RankingPanel(props) {
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer></TouchDismissChart>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
                 <span>平均 ¥{fmt(primeStatsForAge.assetMean * 10000)}</span>
@@ -1830,7 +1841,7 @@ function RankingPanel(props) {
                 <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {primeIncomePercentile}%</div>
                 <div style={styles.percentileNote}>想定年収（額面 ¥{fmt(annualIncomeEstimateGross)}）の位置の目安です</div>
               </div>
-              <ResponsiveContainer width="100%" height={140}>
+              <TouchDismissChart><ResponsiveContainer width="100%" height={140}>
                 <BarChart data={primeIncomeDistribution} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
@@ -1842,7 +1853,7 @@ function RankingPanel(props) {
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer></TouchDismissChart>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
                 <span>平均 ¥{fmt(primeStatsForAge.incomeMean * 10000)}</span>
@@ -2045,7 +2056,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
 
       <div style={styles.chartCard}>
         <p style={styles.chartTitle}>資産の推移予想（銘柄ごとの利率を反映）</p>
-        <ResponsiveContainer width="100%" height={260}>
+        <TouchDismissChart><ResponsiveContainer width="100%" height={260}>
           <AreaChart data={projection} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#5C6862" }} />
@@ -2057,7 +2068,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
               <Area key={key} type="monotone" dataKey={key} stackId="1" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} fill={SERIES_COLORS[i % SERIES_COLORS.length]} fillOpacity={0.45} />
             ))}
           </AreaChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></TouchDismissChart>
         <p style={styles.chartNote}>※ 株式投資（銘柄ごと・新規投資）もその他資産（暗号資産・FXなど）も、想定年率での複利計算による概算です。将来の成果を保証するものではありません。</p>
       </div>
 
@@ -2106,7 +2117,7 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
       {goalCompareData.length > 1 && (
         <div style={styles.chartCard}>
           <p style={styles.chartTitle}>計画上の想定 vs 実際の資産</p>
-          <ResponsiveContainer width="100%" height={200}>
+          <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
@@ -2116,7 +2127,7 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
               <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></TouchDismissChart>
         </div>
       )}
 
