@@ -22,7 +22,7 @@ export async function POST(req) {
     // 自分自身のコードを入れた場合は無視（不正防止）
     const { data: referrer } = await supabaseAdmin
       .from("user_profiles")
-      .select("user_id, is_premium, premium_until")
+      .select("user_id, is_premium, premium_until, premium_source")
       .eq("referral_code", referralCode)
       .maybeSingle();
 
@@ -38,9 +38,12 @@ export async function POST(req) {
     const newUntil = new Date(base > new Date() ? base : new Date());
     newUntil.setMonth(newUntil.getMonth() + 1);
 
+    const update = { is_premium: true, premium_until: newUntil.toISOString() };
+    if (referrer.premium_source !== "paid") update.premium_source = "referral";
+
     await supabaseAdmin
       .from("user_profiles")
-      .update({ is_premium: true, premium_until: newUntil.toISOString() })
+      .update(update)
       .eq("user_id", referrer.user_id);
 
     return NextResponse.json({ applied: true });
