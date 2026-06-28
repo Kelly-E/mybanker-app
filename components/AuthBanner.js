@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCurrentUser, upgradeToEmailAccount, signInWithEmail, signOut, ensureUser } from "../lib/storage";
+import { getCurrentUser, upgradeToEmailAccount, signInWithEmail, signOut, ensureUser, requestPasswordReset } from "../lib/storage";
 
 export default function AuthBanner() {
   const [user, setUser] = useState(null);
@@ -61,6 +61,17 @@ export default function AuthBanner() {
     }
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    try {
+      await requestPasswordReset(email);
+      setMessage("パスワード再設定用のメールを送りました。メール内のリンクを開いてください。");
+    } catch (err) {
+      setMessage("エラー: " + err.message);
+    }
+  };
+
   if (!isAnonymous) {
     return (
       <div style={styles.bar}>
@@ -98,7 +109,15 @@ export default function AuthBanner() {
           <input style={styles.input} type="email" placeholder="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <input style={styles.input} type="password" placeholder="パスワード" value={password} onChange={(e) => setPassword(e.target.value)} required />
           <button style={styles.submitBtn} type="submit">ログイン</button>
+          <button style={styles.linkBtnGhost} type="button" onClick={() => setMode("forgot")}>パスワードをお忘れですか？</button>
           <button style={styles.linkBtnGhost} type="button" onClick={() => setMode(null)}>キャンセル</button>
+        </form>
+      )}
+      {mode === "forgot" && (
+        <form onSubmit={handleForgotPassword} style={styles.form}>
+          <input style={styles.input} type="email" placeholder="登録したメールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <button style={styles.submitBtn} type="submit">再設定メールを送る</button>
+          <button style={styles.linkBtnGhost} type="button" onClick={() => setMode("login")}>ログインに戻る</button>
         </form>
       )}
       {message && <span style={styles.message}>{message}</span>}
