@@ -586,8 +586,6 @@ export default function MyBanker() {
     const total = (Number(assetInput.savings) || 0) + stocksFromHoldings + otherAssetsTotal;
     const todayKey = new Date().toLocaleDateString("ja-JP");
     const existingIdx = assetLogs.findIndex((l) => l.date === todayKey);
-    const sorted = [...assetLogs].sort((a, b) => a.id - b.id);
-    const prev = existingIdx >= 0 ? sorted[sorted.length - 2] : sorted[sorted.length - 1];
     const entry = {
       id: existingIdx >= 0 ? assetLogs[existingIdx].id : Date.now(),
       date: todayKey, savings: assetInput.savings, stocks: String(stocksFromHoldings),
@@ -595,15 +593,6 @@ export default function MyBanker() {
       holdingItems: holdings.map((h) => ({ name: h.name, amount: h.amount, rate: h.rate })),
       total,
     };
-    if (prev) {
-      const prevDate = prev.date ? new Date(prev.date.replace(/\//g, "-")) : null;
-      const todayDate = new Date(todayKey.replace(/\//g, "-"));
-      const daysElapsed = prevDate && !isNaN(prevDate.getTime()) ? Math.max(1, Math.round((todayDate - prevDate) / 86400000)) : 30;
-      const proratedIncome = monthlyIncomeComputed * (daysElapsed / 30);
-      const assetChange = total - prev.total;
-      entry.impliedSpending = Math.round(proratedIncome - assetChange);
-      entry.impliedSpendingDetail = { daysElapsed, proratedIncome: Math.round(proratedIncome), assetChange: Math.round(assetChange), prevDate: prev.date };
-    }
     if (existingIdx >= 0) {
       const next = [...assetLogs];
       next[existingIdx] = entry;
@@ -613,6 +602,25 @@ export default function MyBanker() {
     }
     setAssetInput({ savings: assetInput.savings });
   };
+
+  // 実質支出は保存時に固定せず、毎回その場で計算する（計算式を後で改善しても、古い記録に正しく反映されるように）
+  const impliedSpendingInfo = useMemo(() => {
+    const sorted = [...assetLogs].sort((a, b) => (a.id || 0) - (b.id || 0));
+    if (sorted.length < 2) return null;
+    const last = sorted[sorted.length - 1];
+    const prev = sorted[sorted.length - 2];
+    const prevDate = prev.date ? new Date(prev.date.replace(/\//g, "-")) : null;
+    const lastDate = last.date ? new Date(last.date.replace(/\//g, "-")) : null;
+    const daysElapsed = prevDate && lastDate && !isNaN(prevDate.getTime()) && !isNaN(lastDate.getTime())
+      ? Math.max(1, Math.round((lastDate - prevDate) / 86400000)) : 30;
+    const proratedIncome = Math.round(monthlyIncomeComputed * (daysElapsed / 30));
+    const cashChange = (Number(last.savings) || 0) - (Number(prev.savings) || 0);
+    const plannedMonthlyInvestment = (allocNums.nisa || 0) + (allocNums.other || 0);
+    const proratedInvestment = Math.round(plannedMonthlyInvestment * (daysElapsed / 30));
+    const impliedSpending = Math.round(proratedIncome - cashChange - proratedInvestment);
+    return { daysElapsed, proratedIncome, cashChange, proratedInvestment, impliedSpending, prevDate: prev.date, lastDate: last.date, hasPlan: allocTouched };
+  }, [assetLogs, monthlyIncomeComputed, allocNums, allocTouched]);
+
 
   const updateAssetLog = (id, field, value) => {
     setAssetLogs(assetLogs.map((l) => {
@@ -867,7 +875,7 @@ export default function MyBanker() {
     otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset,
     otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver,
     reviewSpan, setReviewSpan, email, setEmail,
-    assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData,
+    assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo,
     incomeLogInput, setIncomeLogInput, addIncomeLog, incomeLogs, incomeProjection,
     holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
     otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal,
@@ -2086,7 +2094,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
   );
 }
 
-function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog, monthlyIncomeComputed }) {
+function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog, monthlyIncomeComputed }) {
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -2116,12 +2124,15 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
           <div style={styles.readOnlyValueRow}>¥{fmt(otherAssetsTotal)}</div>
         </div>
       </div>
-      {last && last.impliedSpending !== undefined && (
-        <div style={styles.statusBanner2(last.impliedSpending <= 0)}>
-          前回記録（{last.impliedSpendingDetail?.prevDate}）から{last.impliedSpendingDetail?.daysElapsed}日間、今期の実質支出は約 ¥{fmt(last.impliedSpending)} と推定されます。
+      {impliedSpendingInfo && (
+        <div style={styles.statusBanner2(impliedSpendingInfo.impliedSpending <= 0)}>
+          前回記録（{impliedSpendingInfo.prevDate}）から{impliedSpendingInfo.lastDate}まで（{impliedSpendingInfo.daysElapsed}日間）、今期の実質支出は約 ¥{fmt(impliedSpendingInfo.impliedSpending)} と推定されます。
           <div style={styles.calcNote}>
-            計算式：この期間の概算収入 ¥{fmt(last.impliedSpendingDetail?.proratedIncome)}（月収 ¥{fmt(monthlyIncomeComputed)} を日数で換算）− 資産の増減 ¥{fmt(last.impliedSpendingDetail?.assetChange)}（貯金＋株式・投資信託＋その他資産の合計の前回比）
+            計算式：この期間の概算収入（ボーナス除く） ¥{fmt(impliedSpendingInfo.proratedIncome)} − 貯金の増減 ¥{fmt(impliedSpendingInfo.cashChange)} − {impliedSpendingInfo.hasPlan ? "積立設定に基づく投資額" : "投資への積立額（未設定のため¥0として概算）"} ¥{fmt(impliedSpendingInfo.proratedInvestment)}
           </div>
+          {!impliedSpendingInfo.hasPlan && (
+            <p style={styles.hint}>※「積立プランを決める」を設定すると、株価の変動に影響されない、より正確な支出推定になります。</p>
+          )}
         </div>
       )}
 
