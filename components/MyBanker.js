@@ -2086,7 +2086,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
   );
 }
 
-function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog }) {
+function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog, monthlyIncomeComputed }) {
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
