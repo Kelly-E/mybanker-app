@@ -298,6 +298,7 @@ export default function MyBanker() {
   const [myReferralCode, setMyReferralCode] = useState(null);
   const [incomingReferralCode, setIncomingReferralCode] = useState(null);
   const [premiumUntil, setPremiumUntil] = useState(null);
+  const [premiumSource, setPremiumSource] = useState(null);
   const [isAnonymousUser, setIsAnonymousUser] = useState(false);
 
   useEffect(() => {
@@ -307,6 +308,7 @@ export default function MyBanker() {
         setIsPremium(!!stillValid);
         setMyReferralCode(p.referral_code);
         setPremiumUntil(p.premium_until || null);
+        setPremiumSource(stillValid ? p.premium_source : null);
       })
       .catch(() => {});
 
@@ -333,6 +335,7 @@ export default function MyBanker() {
 
   const [alloc, setAlloc] = useState({ savings: "60000", nisa: "80000", other: "0", free: "30000" });
   const [allocTouched, setAllocTouched] = useState(false);
+  const [goalAmount, setGoalAmount] = useState("");
   const [bonusAlloc, setBonusAlloc] = useState({ savings: "30", nisa: "50", other: "0", free: "20" });
   const [nisaSplits, setNisaSplits] = useState({}); // { [holdingId]: amountString }
   const [otherSplits, setOtherSplits] = useState({}); // { [otherHoldingId]: pctString }
@@ -366,6 +369,7 @@ export default function MyBanker() {
           if (d.holdings) setHoldings(d.holdings);
           if (d.otherHoldings) setOtherHoldings(d.otherHoldings);
           if (d.sideIncomes) setSideIncomes(d.sideIncomes);
+          if (d.goalAmount) setGoalAmount(d.goalAmount);
           if (d.otherAssets) setOtherAssets(d.otherAssets);
           if (d.holdingsLogs) setHoldingsLogs(d.holdingsLogs);
           if (d.isPremium) setIsPremium(d.isPremium);
@@ -379,9 +383,9 @@ export default function MyBanker() {
 
   useEffect(() => {
     if (!loaded) return;
-    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes };
+    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount };
     storage.set(STORAGE_KEY, JSON.stringify(data), false).catch(() => {});
-  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, loaded]);
+  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount, loaded]);
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const updateExpense = (key) => (e) => setExpenses(expenses.map((x) => (x.key === key ? { ...x, amount: e.target.value } : x)));
@@ -567,6 +571,55 @@ export default function MyBanker() {
     }
     return data;
   }, [allocNums, baselineSavings, holdings, otherHoldings, profile, bonusHandling, bonusAllocNums, nisaSplits, otherSplits, nisaUnassignedAmount, otherUnassignedAmount, growableOtherAssets]);
+
+  // 目標金額まで何ヶ月かかるかを、同じ前提（積立・利率）で月次シミュレーションして求める
+  const monthsToGoal = useMemo(() => {
+    const goal = Number(goalAmount) || 0;
+    if (goal <= 0) return null;
+    let savings = baselineSavings;
+    let otherBal = 0;
+    let unassignedBal = 0;
+    const unassignedRate = profile.rate / 12;
+    const holdingBalances = {};
+    holdings.forEach((h) => { holdingBalances[h.id] = Number(h.amount) || 0; });
+    const otherHoldingBalances = {};
+    otherHoldings.forEach((h) => { otherHoldingBalances[h.id] = Number(h.amount) || 0; });
+    const otherAssetsBalance = {};
+    growableOtherAssets.forEach((x) => { otherAssetsBalance[x.label] = Number(x.amount) || 0; });
+
+    const currentTotal = () => {
+      let t = savings + otherBal + unassignedBal;
+      holdings.forEach((h) => { t += holdingBalances[h.id] || 0; });
+      otherHoldings.forEach((h) => { t += otherHoldingBalances[h.id] || 0; });
+      growableOtherAssets.forEach((x) => { t += otherAssetsBalance[x.label] || 0; });
+      return t;
+    };
+
+    if (currentTotal() >= goal) return 0;
+
+    const maxMonths = 600; // 50年でキャップ
+    for (let m = 1; m <= maxMonths; m++) {
+      savings += allocNums.savings;
+      otherBal = otherBal * (1 + unassignedRate) + otherUnassignedAmount;
+      holdings.forEach((h) => {
+        const hRate = (Number(h.rate) || 0) / 100 / 12;
+        const monthlyAdd = allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100);
+        holdingBalances[h.id] = (holdingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
+      });
+      otherHoldings.forEach((h) => {
+        const hRate = (Number(h.rate) || 0) / 100 / 12;
+        const monthlyAdd = allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100);
+        otherHoldingBalances[h.id] = (otherHoldingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
+      });
+      unassignedBal = unassignedBal * (1 + unassignedRate) + nisaUnassignedAmount;
+      growableOtherAssets.forEach((x) => {
+        const rate = (Number(x.rate) || 0) / 100 / 12;
+        otherAssetsBalance[x.label] = (otherAssetsBalance[x.label] || 0) * (1 + rate);
+      });
+      if (currentTotal() >= goal) return m;
+    }
+    return null; // 50年以内に到達しない見込み
+  }, [goalAmount, baselineSavings, holdings, otherHoldings, profile, allocNums, nisaSplits, otherSplits, nisaUnassignedAmount, otherUnassignedAmount, growableOtherAssets]);
 
   const projectionSeriesKeys = useMemo(() => {
     const keys = holdings.map((h) => h.name);
@@ -884,7 +937,7 @@ export default function MyBanker() {
     planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
-    myReferralCode, incomingReferralCode, premiumUntil, isAnonymousUser,
+    myReferralCode, incomingReferralCode, premiumUntil, isAnonymousUser, premiumSource, goalAmount, setGoalAmount, monthsToGoal,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
@@ -901,7 +954,7 @@ export default function MyBanker() {
     <div style={styles.page}>
       <div style={styles.shell}>
         <Header step={step} setStep={setStep} />
-        {step === 0 && <Intro onNext={() => setStep(1)} />}
+        {step === 0 && <Intro onNext={() => setStep(1)} onLogin={() => { setAppPhase("dashboard"); setDashView("account"); }} />}
         {step === 1 && <IncomeStep {...sharedProps} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
         {step === 2 && <ExpenseStep {...sharedProps} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
         {step === 3 && (
@@ -930,13 +983,14 @@ function Header({ step, setStep }) {
   );
 }
 
-function Intro({ onNext }) {
+function Intro({ onNext, onLogin }) {
   return (
     <div style={styles.card}>
-      <p style={styles.eyebrow}>資産形成の伴走サービス</p>
-      <h1 style={styles.h1}>たまる、ふえる、心地いい。<br />あなた専用のマネープランナー。</h1>
-      <p style={styles.lead}>貯金、株式投資（NISAなど）、ふるさと納税、iDeCoや保険、暗号資産やその他の資産まで、収入と支出から総合的に考え、毎月の振り返りで一緒に整えていきます。</p>
+      <p style={styles.eyebrow}>順位がわかる資産管理サービス</p>
+      <h1 style={styles.h1}>資産形成を、もっと楽しく。</h1>
+      <p style={styles.lead}>貯金や投資、NISAなどの資産をまとめて管理。同年代・同年収の中での資産順位を確認しながら、自分の成長を実感できます。資産が増えるたび、順位も上がる。資産形成を、もっと楽しく続けましょう。</p>
       <button style={styles.primaryBtn} onClick={onNext}>はじめる</button>
+      <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 14 }} onClick={onLogin}>すでにアカウントをお持ちの方はこちら（ログイン）</button>
     </div>
   );
 }
@@ -1274,7 +1328,7 @@ function Glossary({ onClose }) {
 }
 
 function Dashboard(props) {
-  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched, isAnonymousUser } = props;
+  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched, isAnonymousUser, goalAmount, setGoalAmount } = props;
   const [showGlossary, setShowGlossary] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const navItems = [
@@ -1315,6 +1369,17 @@ function Dashboard(props) {
               <SimulatorPanel {...props} />
               <div style={{ ...styles.btnRow, marginTop: 18 }}>
                 <button style={styles.ghostBtn} onClick={() => setPlanningFlow("risk")}>運用方針を直す</button>
+                <button style={styles.primaryBtn} onClick={() => setPlanningFlow("goal")}>次へ（目標金額を設定）</button>
+              </div>
+            </div>
+          )}
+          {planningFlow === "goal" && (
+            <div style={styles.card}>
+              <p style={styles.eyebrow}>目標金額</p>
+              <h2 style={styles.h2}>将来、いくらを目指しますか？</h2>
+              <Field label="目標金額" value={goalAmount} onChange={(e) => setGoalAmount(e.target.value)} suffix="円" hint="例：3000万円なら「30000000」と入力（未設定でもメイン画面のシミュレーションは表示されます）" />
+              <div style={{ ...styles.btnRow, marginTop: 18 }}>
+                <button style={styles.ghostBtn} onClick={() => setPlanningFlow("simulator")}>配分を直す</button>
                 <button style={styles.primaryBtn} onClick={() => setPlanningFlow(null)}>完了してメイン画面へ</button>
               </div>
             </div>
@@ -1363,7 +1428,7 @@ function Dashboard(props) {
   );
 }
 
-function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched }) {
+function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched, goalAmount, monthsToGoal }) {
   const lastCompare = goalCompareData[goalCompareData.length - 1];
   const diff = lastCompare ? lastCompare.実際の資産 - lastCompare.計画上の想定 : null;
   const lastLog = assetLogs[assetLogs.length - 1];
@@ -1445,7 +1510,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
       <div style={styles.chartCard}>
         <div style={styles.chartTitleRow}>
           <p style={styles.chartTitle}>資産の推移予想（{RISK_PROFILES[riskProfile].label}）</p>
-          <button style={styles.planBtn} onClick={() => setPlanningFlow(allocTouched ? "simulator" : "risk")}>{allocTouched ? "積立プランを編集/確認する" : "積立プランを決めて将来の資産推移を見る"}</button>
+          <button style={styles.planBtn} onClick={() => setPlanningFlow(allocTouched ? "simulator" : "risk")}>{allocTouched ? "積立プラン・目標金額を編集/確認する" : "積立プランを決めて将来の資産推移を見る"}</button>
         </div>
         <div style={styles.rangeToggleRow}>
           <button style={chartRange === "near" ? styles.pillActiveSm : styles.pillSm} onClick={() => setChartRange("near")}>5年後まで</button>
@@ -1466,6 +1531,19 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
         </ResponsiveContainer></TouchDismissChart>
         <p style={styles.chartNote}>※ 株式投資は月次の複利、その他資産（暗号資産・FXなど）は年率の複利で概算しています。想定年率自体の確実性は資産ごとに異なります（特に暗号資産は不確実性が高めです）。</p>
       </div>
+
+      {goalAmount && Number(goalAmount) > 0 && (
+        <div style={styles.goalCountdownCard}>
+          <span style={styles.goalLabel}>目標金額 ¥{fmt(Number(goalAmount))} まで</span>
+          {monthsToGoal === 0 ? (
+            <span style={styles.goalValue}>達成済みです 🎉</span>
+          ) : monthsToGoal === null ? (
+            <span style={styles.goalValue}>このペースでは50年以内の到達が難しい見込みです</span>
+          ) : (
+            <span style={styles.goalValue}>あと{Math.floor(monthsToGoal / 12)}年{monthsToGoal % 12}ヶ月</span>
+          )}
+        </div>
+      )}
 
       {goalCompareData.length > 1 && (
         <div style={styles.chartCard}>
@@ -1500,7 +1578,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
   );
 }
 
-function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, premiumUntil, children }) {
+function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, premiumUntil, premiumSource, setDashView, children }) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -1519,16 +1597,22 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
   if (isPremium) {
     return (
       <div>
+        {premiumSource === "trial" && <div style={styles.trialBanner}>会員登録特典により30日間無料表示中</div>}
+        {premiumSource === "referral" && <div style={styles.trialBanner}>友人紹介により30日間無料表示中</div>}
         {children}
         <div style={styles.cancelBox}>
           {premiumUntil && (
             <p style={styles.hint}>
-              次回更新日（解約済みの場合はこの日まで閲覧可能）：{new Date(premiumUntil).toLocaleDateString("ja-JP")}
+              {premiumSource === "paid"
+                ? `次回更新日（解約済みの場合はこの日まで閲覧可能）：${new Date(premiumUntil).toLocaleDateString("ja-JP")}`
+                : `無料閲覧期間：${new Date(premiumUntil).toLocaleDateString("ja-JP")}まで`}
             </p>
           )}
-          <button style={styles.ghostBtn} onClick={handlePortal} disabled={portalLoading}>
-            {portalLoading ? "管理ページへ移動中..." : "解約・お支払い方法の管理"}
-          </button>
+          {premiumSource === "paid" && (
+            <button style={styles.ghostBtn} onClick={handlePortal} disabled={portalLoading}>
+              {portalLoading ? "管理ページへ移動中..." : "解約・お支払い方法の管理"}
+            </button>
+          )}
           {errorMsg && <p style={styles.warnText}>{errorMsg}</p>}
         </div>
       </div>
@@ -1591,6 +1675,10 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
           <span style={styles.paywallPrice}>月額 ¥500</span>
           <span style={styles.paywallNote}>友人を1人紹介すると、その月は無料</span>
         </div>
+        <div style={styles.trialNoticeBox}>
+          <span>会員登録（無料）するだけで、30日間すべて無料で閲覧できます。</span>
+          {setDashView && <button style={styles.smallLinkBtn} onClick={() => setDashView("account")}>会員登録はこちら →</button>}
+        </div>
         {incomingReferralCode && (
           <p style={styles.hint}>紹介コード「{incomingReferralCode}」を適用して登録します。</p>
         )}
@@ -1623,7 +1711,7 @@ function RankingPanel(props) {
     assetDistribution, incomePercentile, incomeDistribution, annualIncomeEstimateGross,
     expenseCategoryComparison, savingsRatePeer, savingsRateUser, savingsRateDiff,
     growthRateInfo, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
-    myReferralCode, incomingReferralCode, premiumUntil,
+    myReferralCode, incomingReferralCode, premiumUntil, premiumSource, setDashView,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
@@ -1644,10 +1732,52 @@ function RankingPanel(props) {
     { key: "prime", label: "東証プライム上場企業社員との比較" },
   ];
 
+  const [showAmountsInShare, setShowAmountsInShare] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const medal = (pct) => (pct <= 3 ? "🥇" : pct <= 20 ? "🥈" : pct <= 50 ? "🥉" : "🏅");
+
+  const buildShareText = () => {
+    const lines = ["━━━━━━━━━━"];
+    lines.push(`同年代 資産ランキング`);
+    lines.push(`${medal(assetPercentile)}上位${assetPercentile}%`);
+    if (showAmountsInShare) lines.push(`総資産　${fmt(totalNetWorth)}円`);
+    if (isPremium) {
+      lines.push("");
+      lines.push(`同収入 資産ランキング`);
+      lines.push(`${medal(incomeBracketAssetPercentile)}上位${incomeBracketAssetPercentile}%`);
+      if (showAmountsInShare) lines.push(`総資産　${fmt(totalNetWorth)}円`);
+      lines.push("");
+      lines.push(`東証プライム社員 資産ランキング`);
+      lines.push(`${medal(primeAssetPercentile)}上位${primeAssetPercentile}%`);
+      if (showAmountsInShare) lines.push(`総資産　${fmt(totalNetWorth)}円`);
+    }
+    lines.push("━━━━━━━━━━");
+    lines.push("あなたも無料で順位をチェック → https://mybanker-app.vercel.app");
+    return lines.join("\n");
+  };
+
+  const handleShare = async () => {
+    const text = buildShareText();
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; } catch (e) { /* キャンセル時など */ }
+    }
+    navigator.clipboard?.writeText(text);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  };
+
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>ランキング</p>
       <h2 style={styles.h2}>自分の立ち位置を見てみましょう</h2>
+
+      <div style={styles.shareBox}>
+        <label style={styles.shareCheckboxRow}>
+          <input type="checkbox" checked={showAmountsInShare} onChange={(e) => setShowAmountsInShare(e.target.checked)} />
+          <span>シェア時に金額も表示する</span>
+        </label>
+        <button style={styles.shareBtn} onClick={handleShare}>{shareCopied ? "コピーしました" : "📤 シェアする"}</button>
+      </div>
 
       <div style={styles.categoryPickerRow}>
         {categories.map((c) => (
@@ -1689,7 +1819,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView}>
             <div>
               <p style={styles.chartTitle}>年収の同年代比較</p>
               <div style={styles.percentileRow}>
@@ -1792,7 +1922,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView}>
             <div>
               <p style={styles.chartTitle}>支出の同収入帯比較</p>
               <div style={styles.statusBanner2(incomeBracketExpenseDiff <= 0)}>
@@ -1847,7 +1977,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView}>
             <div>
               <p style={styles.chartTitle}>年収の比較</p>
               <div style={styles.percentileRow}>
@@ -2403,6 +2533,8 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
   const [emailMsg, setEmailMsg] = useState("");
   const [pwMsg, setPwMsg] = useState("");
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     getCurrentUser().then((u) => {
@@ -2420,10 +2552,16 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
     setMessage("");
     try {
       await upgradeToEmailAccount(email, password);
-      setMessage("登録しました。確認メールが届いていれば、リンクを開いて認証してください。");
+      setMessage("登録しました。確認メールが届いていれば、リンクを開いて認証してください。30日間、プレミアム機能も無料でお試しいただけます。");
       const u = await getCurrentUser();
       setUser(u);
       setMode(null);
+      if (u?.id) {
+        fetch("/api/apply-signup-trial", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: u.id }),
+        }).then(() => window.location.reload()).catch(() => {});
+      }
       if (incomingReferralCode && u?.id) {
         fetch("/api/apply-referral", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -2487,6 +2625,21 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
     navigator.clipboard?.writeText(referralUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteLoading(true);
+    try {
+      await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      await signOut();
+      window.location.reload();
+    } catch (err) {
+      setDeleteLoading(false);
+    }
   };
 
   if (!loaded) return <div style={styles.card} />;
@@ -2595,6 +2748,19 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
 
       <div style={styles.divider} />
       <button style={styles.ghostBtn} onClick={() => signOut().then(() => window.location.reload())}>ログアウト</button>
+
+      <div style={styles.divider} />
+      {!confirmDelete ? (
+        <button style={styles.smallLinkBtn} onClick={() => setConfirmDelete(true)}>アカウントを削除する</button>
+      ) : (
+        <div>
+          <p style={styles.hint}>本当に削除しますか？ログインできなくなります（分析・サービス改善のため、データ自体は当面保持されます）。</p>
+          <div style={styles.btnRow}>
+            <button style={styles.warnBtn} onClick={handleDeleteAccount} disabled={deleteLoading}>{deleteLoading ? "削除中..." : "削除する"}</button>
+            <button style={styles.ghostBtn} onClick={() => setConfirmDelete(false)}>キャンセル</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2672,6 +2838,7 @@ const styles = {
   calcNote: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, color: "#7A6F4E", background: "#F1F0E8", padding: "8px 12px", borderRadius: 8, marginBottom: 20, display: "inline-block" },
   primaryBtn: { background: "#1F2630", color: "#FBFAF6", border: "none", borderRadius: 10, padding: "12px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
   ghostBtn: { background: "transparent", color: "#1F2630", border: "1px solid #D8E2DA", borderRadius: 10, padding: "12px 22px", fontSize: 14, cursor: "pointer" },
+  warnBtn: { background: "#9A4A1F", color: "#fff", border: "none", borderRadius: 10, padding: "12px 22px", fontSize: 14, cursor: "pointer" },
   btnRow: { display: "flex", justifyContent: "space-between", marginTop: 26 },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 8 },
   grid3: { display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 14, marginBottom: 8 },
@@ -2735,6 +2902,9 @@ const styles = {
   riskPicker: { display: "flex", gap: 8 },
   riskPickerRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 10 },
   categoryPickerRow: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  shareBox: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "#F1F4F1", borderRadius: 10, padding: "10px 14px", marginBottom: 16 },
+  shareCheckboxRow: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#1F2630" },
+  shareBtn: { background: "#1F2630", color: "#fff", border: "none", borderRadius: 18, padding: "8px 16px", fontSize: 12, cursor: "pointer" },
   resetLink: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 12, cursor: "pointer", textDecoration: "underline" },
   pill: { border: "1px solid #D8E2DA", background: "transparent", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#1F2630" },
   pillActive: { border: "1px solid #1F2630", background: "#1F2630", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#fff" },
@@ -2802,6 +2972,11 @@ const styles = {
   testToggleBtn: { marginTop: 14, background: "transparent", border: "none", color: "#3D5A99", fontSize: 11, textDecoration: "underline", cursor: "pointer" },
   smallLinkBtn: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 11.5, textDecoration: "underline", cursor: "pointer", padding: 0 },
   cancelBox: { marginTop: 20, paddingTop: 14, borderTop: "1px solid #E3E9E4" },
+  goalCountdownCard: { background: "#FBF8F0", border: "1px solid #E3DAC2", borderRadius: 14, padding: "16px 18px", marginBottom: 18, display: "flex", flexDirection: "column", gap: 4 },
+  goalLabel: { fontSize: 12, color: "#6B6248" },
+  goalValue: { fontFamily: "'Fraunces', serif", fontSize: 19, fontWeight: 700, color: "#B5582E" },
+  trialBanner: { background: "#3D5A99", color: "#fff", borderRadius: 10, padding: "8px 14px", fontSize: 12, marginBottom: 14, textAlign: "center" },
+  trialNoticeBox: { background: "#F1F4F1", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#1F2630", display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 },
   sideIncomeToggle: { background: "transparent", border: "none", color: "#6B6248", fontSize: 12, textDecoration: "underline", cursor: "pointer", padding: 0 },
   statPairRow: { display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#5C6862", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" },
   youAreHereNote: { fontSize: 11, color: "#B5582E", marginTop: 4 },
