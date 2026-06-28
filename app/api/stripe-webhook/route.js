@@ -39,7 +39,7 @@ export async function POST(req) {
       const referralCode = session.metadata?.referral_code;
 
       if (userId) {
-        await supabaseAdmin.from("user_profiles").update({ is_premium: true }).eq("user_id", userId);
+        await supabaseAdmin.from("user_profiles").update({ is_premium: true, premium_source: "paid" }).eq("user_id", userId);
       }
       if (referralCode) {
         await applyReferralReward(referralCode);
@@ -58,6 +58,7 @@ export async function POST(req) {
           .update({
             is_premium: isActive,
             premium_until: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+            premium_source: isActive ? "paid" : null,
           })
           .eq("user_id", userId);
       }
