@@ -1,10 +1,17 @@
 "use client";
 
-import { storage, startCheckout, getPremiumProfile, openBillingPortal } from "../lib/storage";
+import { storage, startCheckout, getPremiumProfile, openBillingPortal, getCurrentUser, updateEmail, updatePassword, upgradeToEmailAccount, signInWithEmail, signOut, requestPasswordReset } from "../lib/storage";
 import React, { useState, useMemo, useEffect } from "react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const fmt = (n) => Math.round(n || 0).toLocaleString("ja-JP");
+const fmtManOku = (v) => {
+  const oku = 100000000;
+  if (Math.abs(v) >= oku) {
+    return `${(Math.round((v / oku) * 100) / 100).toLocaleString("ja-JP")}億`;
+  }
+  return `${Math.round(v / 10000).toLocaleString("ja-JP")}万`;
+};
 const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
 function LogoIcon({ size = 22 }) {
@@ -95,6 +102,23 @@ const PRIME_STATS = {
   monthlyExpense: 26.5,
   savingsRate: 23,
 };
+
+// 東証プライム上場企業社員の「年代別」データは公表されておらず、一般的な大企業の年功カーブを踏まえた概算の係数。
+// PRIME_STATS（全年代平均）に、この係数を掛けて年代ごとの目安値を推定する。
+const PRIME_AGE_FACTOR = {
+  20: 0.62, 30: 0.92, 40: 1.18, 50: 1.32, 60: 0.95, 70: 0.65,
+};
+function getPrimeStatsForAge(decade) {
+  const f = PRIME_AGE_FACTOR[decade] || 1;
+  return {
+    incomeMean: Math.round(PRIME_STATS.incomeMean * f),
+    incomeMedian: Math.round(PRIME_STATS.incomeMedian * f),
+    assetMean: Math.round(PRIME_STATS.assetMean * f),
+    assetMedian: Math.round(PRIME_STATS.assetMedian * f),
+    monthlyExpense: Math.round(PRIME_STATS.monthlyExpense * Math.min(f, 1.15) * 10) / 10,
+    savingsRate: PRIME_STATS.savingsRate,
+  };
+}
 
 // 年収帯（万円）に応じた手取り率（%）の目安テーブル。社会保険料・所得税（累進）・住民税を踏まえた
 // 一般的な「年収別手取り早見表」の概算値を参考にしています（独身・扶養なしを想定した簡易モデル）。
@@ -262,6 +286,7 @@ export default function MyBanker() {
   const [isPremium, setIsPremium] = useState(false); // ※実際の決済状態がわかるまでの初期値
   const [myReferralCode, setMyReferralCode] = useState(null);
   const [incomingReferralCode, setIncomingReferralCode] = useState(null);
+  const [premiumUntil, setPremiumUntil] = useState(null);
 
   useEffect(() => {
     getPremiumProfile()
@@ -269,6 +294,7 @@ export default function MyBanker() {
         const stillValid = p.premium_until ? new Date(p.premium_until) > new Date() : p.is_premium;
         setIsPremium(!!stillValid);
         setMyReferralCode(p.referral_code);
+        setPremiumUntil(p.premium_until || null);
       })
       .catch(() => {});
 
@@ -701,21 +727,22 @@ export default function MyBanker() {
   const incomeBracketExpenseDiffPct = incomeBracketPeerMonthlyExpense > 0 ? Math.round((incomeBracketExpenseDiff / incomeBracketPeerMonthlyExpense) * 100) : 0;
   const incomeBracketSavingsRateDiff = Math.round((savingsRateUser - incomeBracket.savingsRate) * 10) / 10;
 
-  // 東証プライム上場企業社員との比較（総資産・年収・支出・貯蓄率）
+  // 東証プライム上場企業社員との比較（総資産・年収・支出・貯蓄率）。年代別の係数で調整した推定値。
+  const primeStatsForAge = useMemo(() => getPrimeStatsForAge(ageDecade), [ageDecade]);
   const primeAssetPercentile = useMemo(
-    () => estimatePercentile(totalNetWorth / 10000, PRIME_STATS.assetMean, PRIME_STATS.assetMedian),
-    [totalNetWorth]
+    () => estimatePercentile(totalNetWorth / 10000, primeStatsForAge.assetMean, primeStatsForAge.assetMedian),
+    [totalNetWorth, primeStatsForAge]
   );
-  const primeAssetDistribution = useMemo(() => generateDistributionCurve(PRIME_STATS.assetMean, PRIME_STATS.assetMedian), []);
+  const primeAssetDistribution = useMemo(() => generateDistributionCurve(primeStatsForAge.assetMean, primeStatsForAge.assetMedian), [primeStatsForAge]);
   const primeIncomePercentile = useMemo(
-    () => estimatePercentile(annualIncomeEstimateGross / 10000, PRIME_STATS.incomeMean, PRIME_STATS.incomeMedian),
-    [annualIncomeEstimateGross]
+    () => estimatePercentile(annualIncomeEstimateGross / 10000, primeStatsForAge.incomeMean, primeStatsForAge.incomeMedian),
+    [annualIncomeEstimateGross, primeStatsForAge]
   );
-  const primeIncomeDistribution = useMemo(() => generateDistributionCurve(PRIME_STATS.incomeMean, PRIME_STATS.incomeMedian), []);
-  const primePeerMonthlyExpense = PRIME_STATS.monthlyExpense * 10000;
+  const primeIncomeDistribution = useMemo(() => generateDistributionCurve(primeStatsForAge.incomeMean, primeStatsForAge.incomeMedian), [primeStatsForAge]);
+  const primePeerMonthlyExpense = primeStatsForAge.monthlyExpense * 10000;
   const primeExpenseDiff = totalExpense - primePeerMonthlyExpense;
   const primeExpenseDiffPct = primePeerMonthlyExpense > 0 ? Math.round((primeExpenseDiff / primePeerMonthlyExpense) * 100) : 0;
-  const primeSavingsRateDiff = Math.round((savingsRateUser - PRIME_STATS.savingsRate) * 10) / 10;
+  const primeSavingsRateDiff = Math.round((savingsRateUser - primeStatsForAge.savingsRate) * 10) / 10;
 
   const addHolding = () => {
     if (!holdingInput.name || !holdingInput.amount) return;
@@ -729,7 +756,7 @@ export default function MyBanker() {
   };
 
   const addOtherHolding = () => {
-    if (!otherHoldingInput.name || !otherHoldingInput.amount) return;
+    if (!otherHoldingInput.name) return;
     setOtherHoldings([...otherHoldings, { id: Date.now(), name: otherHoldingInput.name, amount: Number(otherHoldingInput.amount) || 0, rate: Number(otherHoldingInput.rate) || 0 }]);
     setOtherHoldingInput({ name: "", amount: "", rate: "" });
   };
@@ -797,7 +824,7 @@ export default function MyBanker() {
     sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome,
     detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, totalExpense, insuranceRatio,
     riskProfile, setRiskProfile,
-    monthlyFree, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder,
+    monthlyFree, alloc, setAlloc, allocTouched, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder,
     bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, bonusAnnualNet,
     projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault,
     nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS,
@@ -813,11 +840,11 @@ export default function MyBanker() {
     planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
-    myReferralCode, incomingReferralCode,
+    myReferralCode, incomingReferralCode, premiumUntil,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
-    primePeerMonthlyExpense, primeExpenseDiff, primeExpenseDiffPct, primeSavingsRateDiff,
+    primePeerMonthlyExpense, primeExpenseDiff, primeExpenseDiffPct, primeSavingsRateDiff, primeStatsForAge,
     expenseLogs, expenseLogInput, setExpenseLogInput, expenseLogItems, setExpenseLogItems, addExpenseLog, expenseProjection,
     totalNetWorth,
   };
@@ -1067,6 +1094,7 @@ function RiskStep({ riskProfile, setRiskProfile, onNext, onBack }) {
 function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal }) {
   return (
     <div>
+      <div style={styles.totalLineTop}>その他資産合計：<span style={styles.totalValue}>¥{fmt(otherAssetsTotal)}</span></div>
       <p style={styles.hint}>暗号資産、FX、ポイントなど、お好きな項目を追加・編集できます。想定年率を入れると、推移予想に複利（年率に応じた指数関数的な成長）で反映されます。</p>
       <div style={styles.otherAssetList}>
         {otherAssets.map((x) => (
@@ -1094,7 +1122,6 @@ function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabe
           </div>
         ))}
         <button style={styles.addRowBtn} onClick={addOtherAssetRow}>+ 項目を追加する（例：FX、ポイントなど）</button>
-        <div style={styles.totalLine}>その他資産合計：<span style={styles.totalValue}>¥{fmt(otherAssetsTotal)}</span></div>
       </div>
     </div>
   );
@@ -1104,6 +1131,7 @@ function HoldingsEditor({ holdings, holdingInput, setHoldingInput, addHolding, r
   const filtered = HOLDING_PRESETS.filter((p) => holdingInput.name && p.name.toLowerCase().includes(holdingInput.name.toLowerCase()));
   return (
     <div>
+      <div style={styles.totalLineTop}>株式・投資信託の合計：<span style={styles.totalValue}>¥{fmt(totalHoldingsValue)}</span></div>
       <p style={styles.hint}>投資信託名や暗号資産名を入力すると、候補と想定年率が表示されます。候補にないものは、名前と想定年率を自分で入力できます。</p>
       <div style={{ position: "relative" }}>
         <div style={{ position: "relative", marginBottom: 12 }}>
@@ -1136,7 +1164,6 @@ function HoldingsEditor({ holdings, holdingInput, setHoldingInput, addHolding, r
               </div>
             </div>
           ))}
-          <div style={styles.totalLine}>株式・投資信託の合計：<span style={styles.totalValue}>¥{fmt(totalHoldingsValue)}</span></div>
         </div>
       )}
     </div>
@@ -1203,24 +1230,29 @@ function Glossary({ onClose }) {
 }
 
 function Dashboard(props) {
-  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile } = props;
+  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched } = props;
   const [showGlossary, setShowGlossary] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const navItems = [
     { key: "overview", label: "概要" },
-    { key: "ranking", label: "ランキング" },
-    { key: "simulator", label: "配分シミュレーター" },
     { key: "holdings", label: "保有資産" },
+    { key: "ranking", label: "ランキング" },
+  ];
+  const moreItems = [
     { key: "income", label: "収入実績" },
     { key: "expense", label: "支出実績" },
     { key: "settings", label: "設定" },
+    { key: "account", label: "アカウント" },
+    { key: "contact", label: "お問い合わせ" },
   ];
+  const goHome = () => { setPlanningFlow(null); setDashView("overview"); setShowMore(false); };
 
   if (planningFlow) {
     return (
       <div style={styles.page}>
         <div style={styles.shell}>
           <div style={styles.header}>
-            <div style={styles.brand}><LogoIcon /> MyBanker</div>
+            <div style={styles.brand} onClick={goHome}><LogoIcon /> MyBanker</div>
           </div>
           {planningFlow === "risk" && (
             <RiskStep riskProfile={riskProfile} setRiskProfile={setRiskProfile}
@@ -1244,34 +1276,49 @@ function Dashboard(props) {
     <div style={styles.page}>
       <div style={styles.shell}>
         <div style={styles.header}>
-          <div style={styles.brand}><LogoIcon /> MyBanker</div>
+          <div style={styles.brand} onClick={goHome}><LogoIcon /> MyBanker</div>
           <button style={styles.glossaryBtn} onClick={() => setShowGlossary(!showGlossary)}>？ 用語の説明</button>
         </div>
         {showGlossary && <Glossary onClose={() => setShowGlossary(false)} />}
         {dashView === "overview" && <Overview {...props} />}
         {dashView === "ranking" && <RankingPanel {...props} />}
-        {dashView === "simulator" && <SimulatorPanel {...props} />}
         {dashView === "holdings" && <HoldingsPanel {...props} />}
         {dashView === "income" && <IncomeTrackPanel {...props} />}
         {dashView === "expense" && <ExpenseTrackPanel {...props} />}
         {dashView === "settings" && <SettingsPanel {...props} />}
+        {dashView === "account" && <AccountPanel {...props} />}
+        {dashView === "contact" && <ContactPanel />}
+
+        {showMore && (
+          <div style={styles.moreSheet}>
+            {moreItems.map((n) => (
+              <button key={n.key} onClick={() => { setDashView(n.key); setShowMore(false); }} style={dashView === n.key ? styles.moreItemActive : styles.moreItem}>{n.label}</button>
+            ))}
+          </div>
+        )}
 
         <div style={styles.navBar}>
           {navItems.map((n) => (
-            <button key={n.key} onClick={() => setDashView(n.key)} style={dashView === n.key ? styles.navItemActive : styles.navItem}>{n.label}</button>
+            <button key={n.key} onClick={() => { setDashView(n.key); setShowMore(false); }} style={dashView === n.key ? styles.navItemActive : styles.navItem}>{n.label}</button>
           ))}
+          <button onClick={() => setShowMore(!showMore)} style={showMore ? styles.navItemActive : styles.navItem}>☰ その他</button>
         </div>
       </div>
     </div>
   );
 }
 
-function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow }) {
+function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched }) {
   const lastCompare = goalCompareData[goalCompareData.length - 1];
   const diff = lastCompare ? lastCompare.実際の資産 - lastCompare.計画上の想定 : null;
   const lastLog = assetLogs[assetLogs.length - 1];
   const [openCard, setOpenCard] = useState(null);
   const toggle = (key) => setOpenCard(openCard === key ? null : key);
+  const [chartRange, setChartRange] = useState("near");
+  const nearLabels = ["現在", "1年後", "3年後", "5年後"];
+  const projectionView = chartRange === "near"
+    ? projection.filter((p) => nearLabels.includes(p.year))
+    : projection.filter((p) => !["1年後", "3年後"].includes(p.year));
 
   return (
     <div style={styles.card}>
@@ -1343,13 +1390,17 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
       <div style={styles.chartCard}>
         <div style={styles.chartTitleRow}>
           <p style={styles.chartTitle}>資産の推移予想（{RISK_PROFILES[riskProfile].label}）</p>
-          <button style={styles.planBtn} onClick={() => setPlanningFlow("risk")}>積立プランを決めて将来の資産推移を見る</button>
+          <button style={styles.planBtn} onClick={() => setPlanningFlow(allocTouched ? "simulator" : "risk")}>{allocTouched ? "積立プランを編集/確認する" : "積立プランを決めて将来の資産推移を見る"}</button>
+        </div>
+        <div style={styles.rangeToggleRow}>
+          <button style={chartRange === "near" ? styles.pillActiveSm : styles.pillSm} onClick={() => setChartRange("near")}>5年後まで</button>
+          <button style={chartRange === "far" ? styles.pillActiveSm : styles.pillSm} onClick={() => setChartRange("far")}>5〜30年後</button>
         </div>
         <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={projection} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <AreaChart data={projectionView} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#5C6862" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+            <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
             <Tooltip formatter={(v) => `¥${fmt(v)}`} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Area type="monotone" dataKey="貯金" stackId="1" stroke="#2F6B4F" fill="#9FC4AC" />
@@ -1360,6 +1411,24 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
         </ResponsiveContainer>
         <p style={styles.chartNote}>※ 株式投資は月次の複利、その他資産（暗号資産・FXなど）は年率の複利で概算しています。想定年率自体の確実性は資産ごとに異なります（特に暗号資産は不確実性が高めです）。</p>
       </div>
+
+      {goalCompareData.length > 1 && (
+        <div style={styles.chartCard}>
+          <p style={styles.chartTitle}>計画上の想定 vs 実際の資産</p>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
+              <Tooltip formatter={(v) => `¥${fmt(v)}`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+          <p style={styles.chartNote}>※ 資産の記録を保存するたびに、この比較グラフが更新されます。</p>
+        </div>
+      )}
 
       {diff !== null && (
         <div style={styles.statusBanner2(diff >= 0)}>
@@ -1374,7 +1443,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
               <Tooltip formatter={(v) => `¥${fmt(v)}`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
@@ -1393,7 +1462,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
   );
 }
 
-function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, children }) {
+function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, premiumUntil, children }) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -1414,6 +1483,11 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
       <div>
         {children}
         <div style={styles.cancelBox}>
+          {premiumUntil && (
+            <p style={styles.hint}>
+              次回更新日（解約済みの場合はこの日まで閲覧可能）：{new Date(premiumUntil).toLocaleDateString("ja-JP")}
+            </p>
+          )}
           <button style={styles.ghostBtn} onClick={handlePortal} disabled={portalLoading}>
             {portalLoading ? "管理ページへ移動中..." : "解約・お支払い方法の管理"}
           </button>
@@ -1511,11 +1585,11 @@ function RankingPanel(props) {
     assetDistribution, incomePercentile, incomeDistribution, annualIncomeEstimateGross,
     expenseCategoryComparison, savingsRatePeer, savingsRateUser, savingsRateDiff,
     growthRateInfo, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
-    myReferralCode, incomingReferralCode,
+    myReferralCode, incomingReferralCode, premiumUntil,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
-    primePeerMonthlyExpense, primeExpenseDiff, primeExpenseDiffPct, primeSavingsRateDiff,
+    primePeerMonthlyExpense, primeExpenseDiff, primeExpenseDiffPct, primeSavingsRateDiff, primeStatsForAge,
   } = props;
   const [category, setCategory] = useState("age"); // age | income | prime
   const ageStats = AGE_STATS[ageDecade];
@@ -1577,7 +1651,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil}>
             <div>
               <p style={styles.chartTitle}>年収の同年代比較</p>
               <div style={styles.percentileRow}>
@@ -1680,7 +1754,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil}>
             <div>
               <p style={styles.chartTitle}>支出の同収入帯比較</p>
               <div style={styles.statusBanner2(incomeBracketExpenseDiff <= 0)}>
@@ -1703,10 +1777,10 @@ function RankingPanel(props) {
 
       {category === "prime" && (
         <>
-          <p style={styles.chartTitle}>東証プライム上場企業社員との比較</p>
+          <p style={styles.chartTitle}>東証プライム上場企業の同年代（{ageDecade}代）社員との比較</p>
           <div style={styles.percentileRow}>
             <div style={styles.percentileBig}>上位 {primeAssetPercentile}%</div>
-            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）がプライム上場企業社員の中でこの位置にいる目安です</div>
+            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）がプライム上場企業の同年代社員の中でこの位置にいる目安です</div>
           </div>
           {isPremium && (
             <div style={{ marginTop: 16 }}>
@@ -1726,16 +1800,16 @@ function RankingPanel(props) {
               </ResponsiveContainer>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
-                <span>平均 ¥{fmt(PRIME_STATS.assetMean * 10000)}</span>
-                <span>中央値 ¥{fmt(PRIME_STATS.assetMedian * 10000)}</span>
+                <span>平均 ¥{fmt(primeStatsForAge.assetMean * 10000)}</span>
+                <span>中央値 ¥{fmt(primeStatsForAge.assetMedian * 10000)}</span>
               </div>
-              <p style={styles.chartNote}>※ 資産については直接の公表統計が無く、年収水準からの推定値です。</p>
+              <p style={styles.chartNote}>※ 東証プライム上場企業社員の年代別資産統計は公表されていないため、全体平均に年代カーブを掛けた推定値です。</p>
             </div>
           )}
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil}>
             <div>
               <p style={styles.chartTitle}>年収の比較</p>
               <div style={styles.percentileRow}>
@@ -1757,16 +1831,16 @@ function RankingPanel(props) {
               </ResponsiveContainer>
               <p style={styles.youAreHereNote}>● オレンジ＝あなたの位置（万円単位の帯）</p>
               <div style={styles.statPairRow}>
-                <span>平均 ¥{fmt(PRIME_STATS.incomeMean * 10000)}</span>
-                <span>中央値 ¥{fmt(PRIME_STATS.incomeMedian * 10000)}</span>
+                <span>平均 ¥{fmt(primeStatsForAge.incomeMean * 10000)}</span>
+                <span>中央値 ¥{fmt(primeStatsForAge.incomeMedian * 10000)}</span>
               </div>
-              <p style={styles.chartNote}>※ 出典：帝国データバンク「上場企業の『平均年間給与』動向調査（2024年度決算）」東証プライム上場企業平均763.3万円。中央値は推定です。</p>
+              <p style={styles.chartNote}>※ 全体平均（出典：帝国データバンク「上場企業の『平均年間給与』動向調査（2024年度決算）」東証プライム上場企業平均763.3万円）に、一般的な大企業の年功カーブを掛けた年代別の推定値です。</p>
 
               <div style={styles.divider} />
 
               <p style={styles.chartTitle}>支出の比較</p>
               <div style={styles.statusBanner2(primeExpenseDiff <= 0)}>
-                合計でプライム上場企業社員平均（¥{fmt(primePeerMonthlyExpense)}）より{primeExpenseDiff > 0 ? `¥${fmt(Math.abs(primeExpenseDiff))}（+${Math.abs(primeExpenseDiffPct)}%）多い` : `¥${fmt(Math.abs(primeExpenseDiff))}（${primeExpenseDiffPct}%）少ない`}目安です
+                合計でプライム上場企業の同年代社員平均（¥{fmt(primePeerMonthlyExpense)}）より{primeExpenseDiff > 0 ? `¥${fmt(Math.abs(primeExpenseDiff))}（+${Math.abs(primeExpenseDiffPct)}%）多い` : `¥${fmt(Math.abs(primeExpenseDiff))}（${primeExpenseDiffPct}%）少ない`}目安です
               </div>
 
               <div style={styles.divider} />
@@ -1774,7 +1848,7 @@ function RankingPanel(props) {
               <p style={styles.chartTitle}>貯蓄率の比較</p>
               <div style={styles.percentileRow}>
                 <div style={{ ...styles.percentileBig, fontSize: 22, color: primeSavingsRateDiff >= 0 ? "#2F6B4F" : "#9A4A1F" }}>{savingsRateUser}%</div>
-                <div style={styles.percentileNote}>プライム上場企業社員平均は{PRIME_STATS.savingsRate}%です（{primeSavingsRateDiff >= 0 ? "+" : ""}{primeSavingsRateDiff}pt）</div>
+                <div style={styles.percentileNote}>プライム上場企業の同年代社員平均は{primeStatsForAge.savingsRate}%です（{primeSavingsRateDiff >= 0 ? "+" : ""}{primeSavingsRateDiff}pt）</div>
               </div>
               <p style={styles.chartNote}>※ 支出・貯蓄率は年収水準からの推定値で、プライム上場企業社員を対象とした直接の統計ではありません。</p>
             </div>
@@ -1858,6 +1932,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
                       <span style={styles.suffix}>%</span>
                     </div>
                     <div style={styles.allocPct}>¥{fmt(allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100))}</div>
+                    <button style={styles.removeBtn} onClick={() => removeHolding(h.id)}>×</button>
                   </div>
                 </div>
               ))}
@@ -1902,6 +1977,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
                       <span style={styles.suffix}>%</span>
                     </div>
                     <div style={styles.allocPct}>¥{fmt(allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100))}</div>
+                    <button style={styles.removeBtn} onClick={() => removeOtherHolding(h.id)}>×</button>
                   </div>
                 </div>
               ))}
@@ -1919,12 +1995,14 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
             <button style={styles.addRowBtn} onClick={() => setShowAddOtherHolding(true)}>+ 項目を追加する（例：暗号資産、FX、ポイントなど）</button>
           ) : (
             <div style={{ marginTop: 12 }}>
-              <HoldingsEditor
-                holdings={otherHoldings} holdingInput={otherHoldingInput} setHoldingInput={setOtherHoldingInput} addHolding={addOtherHolding}
-                removeHolding={removeOtherHolding} showSuggest={showOtherSuggest} setShowSuggest={setShowOtherSuggest} pickPreset={pickOtherPreset}
-                totalHoldingsValue={otherHoldings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
-              />
-              <button style={{ ...styles.ghostBtn, marginTop: 8 }} onClick={() => setShowAddOtherHolding(false)}>閉じる</button>
+              <div style={styles.grid2}>
+                <Field label="項目名" value={otherHoldingInput.name} onChange={(e) => setOtherHoldingInput({ ...otherHoldingInput, name: e.target.value })} type="text" hint="例：ビットコイン、ポイント運用" />
+                <Field label="想定年率" value={otherHoldingInput.rate} onChange={(e) => setOtherHoldingInput({ ...otherHoldingInput, rate: e.target.value })} suffix="%" />
+              </div>
+              <div style={styles.btnRow}>
+                <button style={styles.primaryBtn} onClick={() => { addOtherHolding(); }}>登録する</button>
+                <button style={styles.ghostBtn} onClick={() => setShowAddOtherHolding(false)}>閉じる</button>
+              </div>
             </div>
           )}
         </div>
@@ -1957,7 +2035,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
           <AreaChart data={projection} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#5C6862" }} />
-            <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+            <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
             <Tooltip formatter={(v) => `¥${fmt(v)}`} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Area type="monotone" dataKey="貯金" stackId="1" stroke="#2F6B4F" fill="#9FC4AC" />
@@ -2018,7 +2096,7 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
             <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
               <Tooltip formatter={(v) => `¥${fmt(v)}`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
@@ -2233,7 +2311,6 @@ function SettingsPanel(props) {
   const [section, setSection] = useState("income");
   const sections = [
     { key: "income", label: "収入" }, { key: "expense", label: "支出" },
-    { key: "risk", label: "運用方針" }, { key: "review", label: "振り返り設定" },
   ];
   const idx = sections.findIndex((s) => s.key === section);
   const goNext = () => setSection(sections[(idx + 1) % sections.length].key);
@@ -2247,23 +2324,272 @@ function SettingsPanel(props) {
       </div>
       {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} />}
       {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} />}
-      {section === "risk" && <RiskStep riskProfile={props.riskProfile} setRiskProfile={props.setRiskProfile} onNext={goNext} onBack={goBack} />}
-      {section === "review" && <ReviewSettingsInner {...props} />}
     </div>
   );
 }
 
-function ReviewSettingsInner({ reviewSpan, setReviewSpan, email, setEmail }) {
+function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferralCode }) {
+  const [user, setUser] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [mode, setMode] = useState(null); // null | "signup" | "login" | "forgot"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [emailMsg, setEmailMsg] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    getCurrentUser().then((u) => {
+      setUser(u);
+      setLoaded(true);
+      if (u?.email) setNewEmail(u.email);
+    });
+  }, []);
+
+  const isAnonymous = !user?.email;
+  const referralUrl = myReferralCode ? `https://mybanker-app.vercel.app/?ref=${myReferralCode}` : "";
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    try {
+      await upgradeToEmailAccount(email, password);
+      setMessage("登録しました。確認メールが届いていれば、リンクを開いて認証してください。");
+      const u = await getCurrentUser();
+      setUser(u);
+      setMode(null);
+      if (incomingReferralCode && u?.id) {
+        fetch("/api/apply-referral", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: u.id, referralCode: incomingReferralCode }),
+        }).catch(() => {});
+      }
+    } catch (err) {
+      setMessage("エラー: " + err.message);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    try {
+      await signInWithEmail(email, password);
+      window.location.reload();
+    } catch (err) {
+      setMessage("エラー: " + err.message);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    try {
+      await requestPasswordReset(email);
+      setMessage("パスワード再設定用のメールを送りました。メール内のリンクを開いてください。");
+    } catch (err) {
+      setMessage("エラー: " + err.message);
+    }
+  };
+
+  const handleEmailSubmit = async (e) => {
+    e.preventDefault();
+    setEmailMsg("");
+    try {
+      await updateEmail(newEmail);
+      setEmailMsg("確認メールを送りました。メール内のリンクを開くと変更が完了します。");
+    } catch (err) {
+      setEmailMsg("エラー: " + err.message);
+    }
+  };
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    setPwMsg("");
+    if (newPassword.length < 6) { setPwMsg("パスワードは6文字以上にしてください。"); return; }
+    if (newPassword !== confirmPassword) { setPwMsg("パスワードが一致しません。"); return; }
+    try {
+      await updatePassword(newPassword);
+      setPwMsg("パスワードを変更しました。");
+      setNewPassword(""); setConfirmPassword("");
+    } catch (err) {
+      setPwMsg("エラー: " + err.message);
+    }
+  };
+
+  const handleCopy = () => {
+    if (!referralUrl) return;
+    navigator.clipboard?.writeText(referralUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!loaded) return <div style={styles.card} />;
+
+  if (isAnonymous) {
+    return (
+      <div style={styles.card}>
+        <p style={styles.eyebrow}>アカウント</p>
+        <h2 style={styles.h2}>登録してデータを保護しましょう</h2>
+        <p style={styles.hint}>このデータは今のブラウザ・端末に保存されています。メールアドレスで登録すると、他の端末からも同じデータにアクセスできるようになります。</p>
+        {!mode && (
+          <div style={styles.btnRow}>
+            <button style={styles.primaryBtn} onClick={() => setMode("signup")}>登録する</button>
+            <button style={styles.ghostBtn} onClick={() => setMode("login")}>既存アカウントでログイン</button>
+          </div>
+        )}
+        {mode === "signup" && (
+          <form onSubmit={handleSignup}>
+            <div style={styles.grid2}>
+              <Field label="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} type="text" />
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>パスワード（6文字以上）</span>
+                <input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required />
+              </label>
+            </div>
+            <div style={styles.btnRow}>
+              <button style={styles.primaryBtn} type="submit">登録する</button>
+              <button style={styles.ghostBtn} type="button" onClick={() => setMode(null)}>キャンセル</button>
+            </div>
+          </form>
+        )}
+        {mode === "login" && (
+          <form onSubmit={handleLogin}>
+            <div style={styles.grid2}>
+              <Field label="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} type="text" />
+              <label style={styles.field}>
+                <span style={styles.fieldLabel}>パスワード</span>
+                <input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              </label>
+            </div>
+            <div style={styles.btnRow}>
+              <button style={styles.primaryBtn} type="submit">ログイン</button>
+              <button style={styles.ghostBtn} type="button" onClick={() => setMode("forgot")}>パスワードをお忘れですか？</button>
+              <button style={styles.ghostBtn} type="button" onClick={() => setMode(null)}>キャンセル</button>
+            </div>
+          </form>
+        )}
+        {mode === "forgot" && (
+          <form onSubmit={handleForgotPassword}>
+            <Field label="登録したメールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} type="text" />
+            <div style={styles.btnRow}>
+              <button style={styles.primaryBtn} type="submit">再設定メールを送る</button>
+              <button style={styles.ghostBtn} type="button" onClick={() => setMode("login")}>ログインに戻る</button>
+            </div>
+          </form>
+        )}
+        {message && <p style={styles.hint}>{message}</p>}
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <div style={styles.spanGrid}>
-        {Object.entries(REVIEW_SPANS).map(([key, label]) => (
-          <button key={key} onClick={() => setReviewSpan(key)} style={reviewSpan === key ? styles.toggleActive : styles.toggleInactive}>{label}</button>
-        ))}
+    <div style={styles.card}>
+      <p style={styles.eyebrow}>アカウント</p>
+      <h2 style={styles.h2}>{user.email} でログイン中</h2>
+
+      <div style={styles.percentileRow}>
+        <div style={{ ...styles.percentileBig, fontSize: 18 }}>{isPremium ? "プレミアム会員" : "無料会員"}</div>
+        {isPremium && premiumUntil && <div style={styles.percentileNote}>次回更新日（解約済みの場合はこの日まで閲覧可能）：{new Date(premiumUntil).toLocaleDateString("ja-JP")}</div>}
       </div>
-      <div style={{ marginTop: 20 }}>
-        <Field label="通知用メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} hint="このプロトタイプでは実際の送信は行われません" />
+
+      {myReferralCode && (
+        <div style={{ marginTop: 14 }}>
+          <p style={styles.fieldLabel}>あなたの紹介リンク（友人が登録すると、あなたが1ヶ月プレミアム無料に）</p>
+          <div style={styles.fieldInputRow}>
+            <input style={styles.input} value={referralUrl} readOnly />
+            <button style={styles.ghostBtn} onClick={handleCopy}>{copied ? "コピーしました" : "コピー"}</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.divider} />
+
+      <form onSubmit={handleEmailSubmit}>
+        <Field label="メールアドレス" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} type="text" />
+        <button style={{ ...styles.primaryBtn, marginTop: 10 }} type="submit">メールアドレスを変更する</button>
+        {emailMsg && <p style={styles.hint}>{emailMsg}</p>}
+      </form>
+
+      <div style={styles.divider} />
+
+      <form onSubmit={handlePasswordSubmit}>
+        <div style={styles.grid2}>
+          <label style={styles.field}>
+            <span style={styles.fieldLabel}>新しいパスワード</span>
+            <input style={styles.input} type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} />
+          </label>
+          <label style={styles.field}>
+            <span style={styles.fieldLabel}>新しいパスワード（確認）</span>
+            <input style={styles.input} type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} />
+          </label>
+        </div>
+        <button style={{ ...styles.primaryBtn, marginTop: 10 }} type="submit">パスワードを変更する</button>
+        {pwMsg && <p style={styles.hint}>{pwMsg}</p>}
+      </form>
+
+      <div style={styles.divider} />
+      <button style={styles.ghostBtn} onClick={() => signOut().then(() => window.location.reload())}>ログアウト</button>
+    </div>
+  );
+}
+
+function ContactPanel() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState(""); // "" | "sending" | "done" | "error"
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setStatus("sending");
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, message }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setStatus("done");
+      setName(""); setEmail(""); setMessage("");
+    } catch (err) {
+      setStatus("error");
+    }
+  };
+
+  if (status === "done") {
+    return (
+      <div style={styles.card}>
+        <p style={styles.eyebrow}>お問い合わせ</p>
+        <h2 style={styles.h2}>送信しました</h2>
+        <p style={styles.hint}>お問い合わせありがとうございます。内容を確認のうえ、必要に応じて対応いたします。</p>
       </div>
+    );
+  }
+
+  return (
+    <div style={styles.card}>
+      <p style={styles.eyebrow}>お問い合わせ</p>
+      <h2 style={styles.h2}>ご要望・ご不明点をお寄せください</h2>
+      <p style={styles.hint}>「こんな機能が欲しい」「ここがわかりにくい」といったご意見、企業の方からのご連絡も、こちらからお送りください。</p>
+      <form onSubmit={handleSubmit}>
+        <div style={styles.grid2}>
+          <Field label="お名前（任意）" value={name} onChange={(e) => setName(e.target.value)} type="text" />
+          <Field label="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} type="text" />
+        </div>
+        <label style={styles.field}>
+          <span style={styles.fieldLabel}>内容</span>
+          <textarea style={styles.textarea} value={message} onChange={(e) => setMessage(e.target.value)} rows={5} required />
+        </label>
+        <button style={{ ...styles.primaryBtn, marginTop: 10 }} type="submit" disabled={status === "sending"}>
+          {status === "sending" ? "送信中..." : "送信する"}
+        </button>
+        {status === "error" && <p style={styles.warnText}>送信に失敗しました。時間をおいて再度お試しください。</p>}
+      </form>
     </div>
   );
 }
@@ -2272,7 +2598,7 @@ const styles = {
   page: { minHeight: "100vh", background: "#EAF2EC", display: "flex", justifyContent: "center", padding: "40px 16px 100px", fontFamily: "'Source Sans 3', 'Hiragino Sans', sans-serif" },
   shell: { width: "100%", maxWidth: 700, position: "relative" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 10 },
-  brand: { fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color: "#1F2630", display: "flex", alignItems: "center", gap: 6 },
+  brand: { fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color: "#1F2630", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" },
   brandMark: { color: "#B5582E" },
   stepRow: { display: "flex", gap: 9, flexWrap: "wrap" },
   stepLabel: { fontSize: 10.2, color: "#1F2630" },
@@ -2295,6 +2621,7 @@ const styles = {
   historyDetail: { padding: "14px 16px 18px", borderBottom: "1px solid #EDF1EE", background: "#FAFAF7" },
   deleteLogBtn: { marginTop: 12, background: "transparent", border: "1px solid #E3B5A8", color: "#9A1F1F", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, cursor: "pointer" },
   input: { border: "none", outline: "none", fontSize: 15, fontFamily: "'JetBrains Mono', monospace", width: "100%", background: "transparent", color: "#1F2630" },
+  textarea: { border: "1px solid #D8E2DA", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "'Source Sans 3', sans-serif", width: "100%", resize: "vertical" },
   suffix: { fontSize: 12, color: "#9AA6A0" },
   hint: { fontSize: 11, color: "#9AA6A0" },
   toggleRow: { display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" },
@@ -2335,6 +2662,7 @@ const styles = {
   removeBtn: { background: "transparent", border: "none", color: "#B5582E", fontSize: 18, cursor: "pointer" },
   addRowBtn: { background: "transparent", border: "1px dashed #B6C4BB", borderRadius: 8, padding: "10px", fontSize: 13, color: "#5C6862", cursor: "pointer", marginTop: 4 },
   totalLine: { fontSize: 13.5, color: "#3D4A45", marginTop: 12, borderTop: "1px solid #E3E9E4", paddingTop: 12 },
+  totalLineTop: { fontSize: 14, color: "#1F2630", marginBottom: 12, background: "#F1F4F1", borderRadius: 10, padding: "10px 14px" },
   totalValue: { fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: "#1F2630" },
   riskGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },
   riskCard: { textAlign: "left", background: "#fff", border: "1px solid #D8E2DA", borderRadius: 12, padding: "16px 14px", cursor: "pointer" },
@@ -2348,6 +2676,9 @@ const styles = {
   resetLink: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 12, cursor: "pointer", textDecoration: "underline" },
   pill: { border: "1px solid #D8E2DA", background: "transparent", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#1F2630" },
   pillActive: { border: "1px solid #1F2630", background: "#1F2630", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#fff" },
+  pillSm: { border: "1px solid #D8E2DA", background: "transparent", borderRadius: 16, padding: "4px 12px", fontSize: 11.5, cursor: "pointer", color: "#1F2630" },
+  pillActiveSm: { border: "1px solid #1F2630", background: "#1F2630", borderRadius: 16, padding: "4px 12px", fontSize: 11.5, cursor: "pointer", color: "#fff" },
+  rangeToggleRow: { display: "flex", gap: 8, marginBottom: 10 },
   allocList: { display: "flex", flexDirection: "column", gap: 12 },
   nisaTargetBox: { background: "#F1F4F1", border: "1px solid #E3E9E4", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 },
   nisaSplitRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 },
@@ -2387,6 +2718,9 @@ const styles = {
   navBar: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#FBFAF6", borderTop: "1px solid #D8E2DA", display: "flex", justifyContent: "center", gap: 6, padding: "10px 12px", flexWrap: "wrap", zIndex: 20 },
   navItem: { background: "transparent", border: "none", color: "#5C6862", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
   navItemActive: { background: "#1F2630", border: "none", color: "#fff", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
+  moreSheet: { position: "fixed", bottom: 56, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 700, background: "#FBFAF6", border: "1px solid #D8E2DA", borderRadius: 14, padding: 10, display: "flex", flexDirection: "column", gap: 4, zIndex: 21, boxShadow: "0 -2px 12px rgba(31,38,48,0.08)" },
+  moreItem: { background: "transparent", border: "none", color: "#1F2630", fontSize: 13, padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" },
+  moreItemActive: { background: "#F1F4F1", border: "none", color: "#1F2630", fontSize: 13, padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left", fontWeight: 600 },
   glossaryBtn: { background: "transparent", border: "1px solid #D8E2DA", borderRadius: 20, padding: "6px 14px", fontSize: 12, cursor: "pointer", color: "#1F2630" },
   glossaryCard: { background: "#FBF8F0", border: "1px solid #E3DAC2", borderRadius: 14, padding: "18px 20px", marginBottom: 18 },
   glossaryHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
