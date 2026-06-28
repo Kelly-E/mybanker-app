@@ -287,6 +287,7 @@ export default function MyBanker() {
   const [myReferralCode, setMyReferralCode] = useState(null);
   const [incomingReferralCode, setIncomingReferralCode] = useState(null);
   const [premiumUntil, setPremiumUntil] = useState(null);
+  const [isAnonymousUser, setIsAnonymousUser] = useState(false);
 
   useEffect(() => {
     getPremiumProfile()
@@ -297,6 +298,8 @@ export default function MyBanker() {
         setPremiumUntil(p.premium_until || null);
       })
       .catch(() => {});
+
+    getCurrentUser().then((u) => setIsAnonymousUser(!u?.email));
 
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -840,7 +843,7 @@ export default function MyBanker() {
     planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
-    myReferralCode, incomingReferralCode, premiumUntil,
+    myReferralCode, incomingReferralCode, premiumUntil, isAnonymousUser,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
@@ -1230,7 +1233,7 @@ function Glossary({ onClose }) {
 }
 
 function Dashboard(props) {
-  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched } = props;
+  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched, isAnonymousUser } = props;
   const [showGlossary, setShowGlossary] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const navItems = [
@@ -1246,6 +1249,14 @@ function Dashboard(props) {
     { key: "contact", label: "お問い合わせ" },
   ];
   const goHome = () => { setPlanningFlow(null); setDashView("overview"); setShowMore(false); };
+  const goAccount = () => { setPlanningFlow(null); setDashView("account"); setShowMore(false); };
+
+  const signupBar = isAnonymousUser && (
+    <div style={styles.signupBar}>
+      <span>このデータは今の端末だけに保存されています。</span>
+      <button style={styles.signupBarBtn} onClick={goAccount}>登録して保護する</button>
+    </div>
+  );
 
   if (planningFlow) {
     return (
@@ -1267,6 +1278,7 @@ function Dashboard(props) {
               </div>
             </div>
           )}
+          {signupBar}
         </div>
       </div>
     );
@@ -1296,6 +1308,8 @@ function Dashboard(props) {
             ))}
           </div>
         )}
+
+        {signupBar}
 
         <div style={styles.navBar}>
           {navItems.map((n) => (
@@ -2716,6 +2730,8 @@ const styles = {
   suggestItem: { display: "flex", justifyContent: "space-between", padding: "10px 14px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid #F1F4F1", color: "#1F2630" },
   suggestRate: { color: "#9AA6A0", fontFamily: "'JetBrains Mono', monospace", fontSize: 11 },
   navBar: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#FBFAF6", borderTop: "1px solid #D8E2DA", display: "flex", justifyContent: "center", gap: 6, padding: "10px 12px", flexWrap: "wrap", zIndex: 20 },
+  signupBar: { position: "fixed", bottom: 54, left: 0, right: 0, background: "#1F2630", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "8px 14px", fontSize: 11.5, flexWrap: "wrap", zIndex: 19 },
+  signupBarBtn: { background: "#fff", color: "#1F2630", border: "none", borderRadius: 14, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 },
   navItem: { background: "transparent", border: "none", color: "#5C6862", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
   navItemActive: { background: "#1F2630", border: "none", color: "#fff", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
   moreSheet: { position: "fixed", bottom: 56, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 700, background: "#FBFAF6", border: "1px solid #D8E2DA", borderRadius: 14, padding: 10, display: "flex", flexDirection: "column", gap: 4, zIndex: 21, boxShadow: "0 -2px 12px rgba(31,38,48,0.08)" },
