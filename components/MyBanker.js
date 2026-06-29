@@ -25,6 +25,21 @@ function TouchDismissChart({ children }) {
   );
 }
 
+// スタック型の積み上げグラフ用：ポイントした時点の合計金額を一番上に表示するツールチップ
+function TotalTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const total = payload.reduce((s, p) => s + (Number(p.value) || 0), 0);
+  return (
+    <div style={styles.tooltipBox}>
+      <p style={styles.tooltipLabel}>{label}</p>
+      <p style={styles.tooltipTotal}>合計：¥{fmt(total)}</p>
+      {payload.map((p, i) => (
+        <p key={i} style={{ ...styles.tooltipRow, color: p.color }}>{p.name}：¥{fmt(p.value)}</p>
+      ))}
+    </div>
+  );
+}
+
 function LogoIcon({ size = 22 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
@@ -336,6 +351,7 @@ export default function MyBanker() {
   const [alloc, setAlloc] = useState({ savings: "60000", nisa: "80000", other: "0", free: "30000" });
   const [allocTouched, setAllocTouched] = useState(false);
   const [goalAmount, setGoalAmount] = useState("");
+  const [planBaseline, setPlanBaseline] = useState(null); // { date, total, monthlyRate } 最初に立てた計画を固定保持
   const [bonusAlloc, setBonusAlloc] = useState({ savings: "30", nisa: "50", other: "0", free: "20" });
   const [nisaSplits, setNisaSplits] = useState({}); // { [holdingId]: amountString }
   const [otherSplits, setOtherSplits] = useState({}); // { [otherHoldingId]: pctString }
@@ -370,6 +386,7 @@ export default function MyBanker() {
           if (d.otherHoldings) setOtherHoldings(d.otherHoldings);
           if (d.sideIncomes) setSideIncomes(d.sideIncomes);
           if (d.goalAmount) setGoalAmount(d.goalAmount);
+          if (d.planBaseline) setPlanBaseline(d.planBaseline);
           if (d.otherAssets) setOtherAssets(d.otherAssets);
           if (d.holdingsLogs) setHoldingsLogs(d.holdingsLogs);
           if (d.isPremium) setIsPremium(d.isPremium);
@@ -383,9 +400,9 @@ export default function MyBanker() {
 
   useEffect(() => {
     if (!loaded) return;
-    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount };
+    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount, planBaseline };
     storage.set(STORAGE_KEY, JSON.stringify(data), false).catch(() => {});
-  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount, loaded]);
+  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount, planBaseline, loaded]);
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const updateExpense = (key) => (e) => setExpenses(expenses.map((x) => (x.key === key ? { ...x, amount: e.target.value } : x)));
@@ -483,7 +500,11 @@ export default function MyBanker() {
   const bonusPctTotal = (Number(bonusAlloc.savings) || 0) + (Number(bonusAlloc.nisa) || 0) + (Number(bonusAlloc.other) || 0) + (Number(bonusAlloc.free) || 0);
 
   const profile = RISK_PROFILES[riskProfile];
-  const baselineSavings = useMemo(() => (assetLogs[0] ? Number(assetLogs[0].savings) || 0 : 0), [assetLogs]);
+  const baselineSavings = useMemo(() => {
+    if (assetLogs.length === 0) return 0;
+    const sorted = [...assetLogs].sort((a, b) => (a.id || 0) - (b.id || 0));
+    return Number(sorted[sorted.length - 1].savings) || 0;
+  }, [assetLogs]);
   const baselineStocks = useMemo(() => (assetLogs[0] ? Number(assetLogs[0].stocks) || 0 : 0), [assetLogs]);
 
   const growableOtherAssets = useMemo(
@@ -706,12 +727,31 @@ export default function MyBanker() {
   };
 
   const sortedAssetLogs = [...assetLogs].sort((a, b) => (a.id || 0) - (b.id || 0));
-  const baselineTotal = sortedAssetLogs[0] ? sortedAssetLogs[0].total : 0;
-  const goalCompareData = sortedAssetLogs.map((l, i) => ({
-    label: l.date,
-    実際の資産: l.total,
-    計画上の想定: Math.round(baselineTotal + (allocNums.savings + allocNums.nisa + allocNums.other) * i),
-  }));
+
+  // 「計画上の想定」は、最初に立てた時点の総資産・配分ペースで固定する（後で配分を変えても動かない）
+  useEffect(() => {
+    if (!planBaseline && sortedAssetLogs.length > 0) {
+      setPlanBaseline({
+        date: sortedAssetLogs[0].date,
+        total: sortedAssetLogs[0].total,
+        monthlyRate: allocNums.savings + allocNums.nisa + allocNums.other,
+      });
+    }
+  }, [sortedAssetLogs.length]); // eslint-disable-line
+
+  const resetPlanBaseline = () => {
+    const latest = sortedAssetLogs[sortedAssetLogs.length - 1];
+    if (!latest) return;
+    setPlanBaseline({ date: latest.date, total: latest.total, monthlyRate: allocNums.savings + allocNums.nisa + allocNums.other });
+  };
+
+  const goalCompareData = planBaseline ? sortedAssetLogs
+    .filter((l) => new Date(l.date.replace(/\//g, "-")) >= new Date(planBaseline.date.replace(/\//g, "-")))
+    .map((l, i) => ({
+      label: l.date,
+      実際の資産: l.total,
+      計画上の想定: Math.round(planBaseline.total + planBaseline.monthlyRate * i),
+    })) : [];
 
   const resetAllocToDefault = () => {
     const r = RISK_PROFILES[riskProfile].defaultRatios;
@@ -930,14 +970,14 @@ export default function MyBanker() {
     reviewSpan, setReviewSpan, email, setEmail,
     assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo,
     incomeLogInput, setIncomeLogInput, addIncomeLog, incomeLogs, incomeProjection,
-    holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
+    holdings, setHoldings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
     otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal,
     holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog,
     userAge, ageDecade, assetPercentile, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
     planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
-    myReferralCode, incomingReferralCode, premiumUntil, isAnonymousUser, premiumSource, goalAmount, setGoalAmount, monthsToGoal,
+    myReferralCode, incomingReferralCode, premiumUntil, isAnonymousUser, premiumSource, goalAmount, setGoalAmount, monthsToGoal, resetPlanBaseline,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
@@ -986,9 +1026,9 @@ function Header({ step, setStep }) {
 function Intro({ onNext, onLogin }) {
   return (
     <div style={styles.card}>
-      <p style={styles.eyebrow}>順位がわかる資産管理サービス</p>
+      <p style={styles.eyebrow}>自分の立ち位置がわかる資産管理サービス</p>
       <h1 style={styles.h1}>資産形成を、もっと楽しく。</h1>
-      <p style={styles.lead}>貯金や投資、NISAなどの資産をまとめて管理。同年代・同年収の中での資産順位を確認しながら、自分の成長を実感できます。資産が増えるたび、順位も上がる。資産形成を、もっと楽しく続けましょう。</p>
+      <p style={styles.lead}>貯金や投資、NISAなどの資産をまとめて管理。同年代・同年収の中での自分の立ち位置を確認しながら、自分の成長を実感できます。資産が増えるたび、ランキングも上がる。資産形成を楽しく続けましょう。</p>
       <button style={styles.primaryBtn} onClick={onNext}>はじめる</button>
       <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 14 }} onClick={onLogin}>すでにアカウントをお持ちの方はこちら（ログイン）</button>
     </div>
@@ -1328,7 +1368,7 @@ function Glossary({ onClose }) {
 }
 
 function Dashboard(props) {
-  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched, isAnonymousUser, goalAmount, setGoalAmount } = props;
+  const { dashView, setDashView, planningFlow, setPlanningFlow, riskProfile, setRiskProfile, allocTouched, isAnonymousUser, goalAmount, setGoalAmount, allocOver, allocUnder, nisaSplitOver, otherSplitOver } = props;
   const [showGlossary, setShowGlossary] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const navItems = [
@@ -1367,9 +1407,12 @@ function Dashboard(props) {
           {planningFlow === "simulator" && (
             <div>
               <SimulatorPanel {...props} />
+              {(allocOver || allocUnder || nisaSplitOver || otherSplitOver) && (
+                <p style={styles.warnText}>配分の合計が100%になっていません。エラー表示の箇所を直してから次に進んでください。</p>
+              )}
               <div style={{ ...styles.btnRow, marginTop: 18 }}>
                 <button style={styles.ghostBtn} onClick={() => setPlanningFlow("risk")}>運用方針を直す</button>
-                <button style={styles.primaryBtn} onClick={() => setPlanningFlow("goal")}>次へ（目標金額を設定）</button>
+                <button style={styles.primaryBtn} onClick={() => setPlanningFlow("goal")} disabled={allocOver || allocUnder || nisaSplitOver || otherSplitOver}>次へ（目標金額を設定）</button>
               </div>
             </div>
           )}
@@ -1378,9 +1421,12 @@ function Dashboard(props) {
               <p style={styles.eyebrow}>目標金額</p>
               <h2 style={styles.h2}>将来、いくらを目指しますか？</h2>
               <Field label="目標金額" value={goalAmount} onChange={(e) => setGoalAmount(e.target.value)} suffix="円" hint="例：3000万円なら「30000000」と入力（未設定でもメイン画面のシミュレーションは表示されます）" />
+              {(allocOver || allocUnder || nisaSplitOver || otherSplitOver) && (
+                <p style={styles.warnText}>配分の合計が100%になっていません。「配分を直す」から修正してください。</p>
+              )}
               <div style={{ ...styles.btnRow, marginTop: 18 }}>
                 <button style={styles.ghostBtn} onClick={() => setPlanningFlow("simulator")}>配分を直す</button>
-                <button style={styles.primaryBtn} onClick={() => setPlanningFlow(null)}>完了してメイン画面へ</button>
+                <button style={styles.primaryBtn} onClick={() => setPlanningFlow(null)} disabled={allocOver || allocUnder || nisaSplitOver || otherSplitOver}>完了してメイン画面へ</button>
               </div>
             </div>
           )}
@@ -1428,7 +1474,7 @@ function Dashboard(props) {
   );
 }
 
-function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched, goalAmount, monthsToGoal }) {
+function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched, goalAmount, monthsToGoal, resetPlanBaseline }) {
   const lastCompare = goalCompareData[goalCompareData.length - 1];
   const diff = lastCompare ? lastCompare.実際の資産 - lastCompare.計画上の想定 : null;
   const lastLog = assetLogs[assetLogs.length - 1];
@@ -1521,7 +1567,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#5C6862" }} />
             <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
-            <Tooltip formatter={(v) => `¥${fmt(v)}`} />
+            <Tooltip content={<TotalTooltip />} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Area type="monotone" dataKey="貯金" stackId="1" stroke="#2F6B4F" fill="#9FC4AC" />
             {projectionSeriesKeys.map((key, i) => (
@@ -1559,7 +1605,8 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer></TouchDismissChart>
-          <p style={styles.chartNote}>※ 資産の記録を保存するたびに、この比較グラフが更新されます。</p>
+          <p style={styles.chartNote}>※ 資産の記録を保存するたびに、この比較グラフが更新されます。「計画上の想定」は最初に立てた計画のまま固定されます。</p>
+          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、計画をリセットする</button>
         </div>
       )}
 
@@ -1732,25 +1779,57 @@ function RankingPanel(props) {
     { key: "prime", label: "東証プライム上場企業社員との比較" },
   ];
 
-  const [showAmountsInShare, setShowAmountsInShare] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const medal = (pct) => (pct <= 3 ? "🥇" : pct <= 20 ? "🥈" : pct <= 50 ? "🥉" : "🏅");
+  const [showSharePicker, setShowSharePicker] = useState(false);
+  const [shareSel, setShareSel] = useState({
+    age_asset: true, age_income: false, age_expense: false, age_savings: false,
+    income_asset: false, income_expense: false, income_savings: false,
+    prime_asset: false, prime_income: false, prime_expense: false, prime_savings: false,
+    showAmounts: false,
+  });
+  const toggleSel = (key) => setShareSel({ ...shareSel, [key]: !shareSel[key] });
+  const medal = (pct) => (pct <= 5 ? "💎" : pct <= 20 ? "🥇" : pct <= 50 ? "🥈" : "🥉");
+
+  const shareGroups = [
+    {
+      key: "age", label: "同年代との資産比較", premium: false,
+      items: [
+        { key: "asset", label: "資産", text: () => `${medal(assetPercentile)}上位${assetPercentile}%${shareSel.showAmounts ? `（¥${fmt(totalNetWorth)}）` : ""}` },
+        { key: "income", label: "年収", text: () => `${medal(incomePercentile)}上位${incomePercentile}%${shareSel.showAmounts ? `（¥${fmt(annualIncomeEstimateGross)}）` : ""}`, premium: true },
+        { key: "expense", label: "支出", text: () => `${expenseDiffPct > 0 ? "+" : ""}${expenseDiffPct}%`, premium: true },
+        { key: "savings", label: "貯蓄率", text: () => `${savingsRateDiff >= 0 ? "+" : ""}${savingsRateDiff}pt`, premium: true },
+      ],
+    },
+    {
+      key: "income", label: "同収入との資産比較", premium: true,
+      items: [
+        { key: "asset", label: "資産", text: () => `${medal(incomeBracketAssetPercentile)}上位${incomeBracketAssetPercentile}%${shareSel.showAmounts ? `（¥${fmt(totalNetWorth)}）` : ""}` },
+        { key: "expense", label: "支出", text: () => `${incomeBracketExpenseDiffPct > 0 ? "+" : ""}${incomeBracketExpenseDiffPct}%` },
+        { key: "savings", label: "貯蓄率", text: () => `${incomeBracketSavingsRateDiff >= 0 ? "+" : ""}${incomeBracketSavingsRateDiff}pt` },
+      ],
+    },
+    {
+      key: "prime", label: "東証プライム社員との資産比較", premium: true,
+      items: [
+        { key: "asset", label: "資産", text: () => `${medal(primeAssetPercentile)}上位${primeAssetPercentile}%${shareSel.showAmounts ? `（¥${fmt(totalNetWorth)}）` : ""}` },
+        { key: "income", label: "年収", text: () => `${medal(primeIncomePercentile)}上位${primeIncomePercentile}%${shareSel.showAmounts ? `（¥${fmt(annualIncomeEstimateGross)}）` : ""}` },
+        { key: "expense", label: "支出", text: () => `${primeExpenseDiffPct > 0 ? "+" : ""}${primeExpenseDiffPct}%` },
+        { key: "savings", label: "貯蓄率", text: () => `${primeSavingsRateDiff >= 0 ? "+" : ""}${primeSavingsRateDiff}pt` },
+      ],
+    },
+  ];
 
   const buildShareText = () => {
     const lines = ["━━━━━━━━━━"];
-    lines.push(`同年代 資産ランキング`);
-    lines.push(`${medal(assetPercentile)}上位${assetPercentile}%`);
-    if (showAmountsInShare) lines.push(`総資産　${fmt(totalNetWorth)}円`);
-    if (isPremium) {
+    shareGroups.forEach((g) => {
+      const picked = g.items.filter((it) => shareSel[`${g.key}_${it.key}`]);
+      if (picked.length === 0) return;
+      lines.push(g.label);
+      picked.forEach((it) => lines.push(`${it.label}：${it.text()}`));
       lines.push("");
-      lines.push(`同収入 資産ランキング`);
-      lines.push(`${medal(incomeBracketAssetPercentile)}上位${incomeBracketAssetPercentile}%`);
-      if (showAmountsInShare) lines.push(`総資産　${fmt(totalNetWorth)}円`);
-      lines.push("");
-      lines.push(`東証プライム社員 資産ランキング`);
-      lines.push(`${medal(primeAssetPercentile)}上位${primeAssetPercentile}%`);
-      if (showAmountsInShare) lines.push(`総資産　${fmt(totalNetWorth)}円`);
-    }
+    });
+    if (lines.length === 1) return null; // 何も選ばれていない
+    if (lines[lines.length - 1] === "") lines.pop();
     lines.push("━━━━━━━━━━");
     lines.push("あなたも無料で順位をチェック → https://mybanker-app.vercel.app");
     return lines.join("\n");
@@ -1758,6 +1837,7 @@ function RankingPanel(props) {
 
   const handleShare = async () => {
     const text = buildShareText();
+    if (!text) return;
     if (navigator.share) {
       try { await navigator.share({ text }); return; } catch (e) { /* キャンセル時など */ }
     }
@@ -1772,11 +1852,45 @@ function RankingPanel(props) {
       <h2 style={styles.h2}>自分の立ち位置を見てみましょう</h2>
 
       <div style={styles.shareBox}>
-        <label style={styles.shareCheckboxRow}>
-          <input type="checkbox" checked={showAmountsInShare} onChange={(e) => setShowAmountsInShare(e.target.checked)} />
-          <span>シェア時に金額も表示する</span>
-        </label>
-        <button style={styles.shareBtn} onClick={handleShare}>{shareCopied ? "コピーしました" : "📤 シェアする"}</button>
+        {!showSharePicker ? (
+          <button style={styles.shareBtn} onClick={() => setShowSharePicker(true)}>📤 シェアする</button>
+        ) : (
+          <div style={{ width: "100%" }}>
+            <p style={styles.fieldLabel}>シェアしたい項目を選んでください</p>
+            {shareGroups.map((g) => (
+              <div key={g.key} style={{ marginBottom: 10 }}>
+                <p style={styles.shareGroupLabel}>{g.label}{g.premium && !isPremium && "（プレミアム限定）"}</p>
+                <div style={styles.shareItemRow}>
+                  {g.items.map((it) => {
+                    const locked = (g.premium || it.premium) && !isPremium;
+                    return (
+                      <label key={it.key} style={{ ...styles.shareCheckboxRow, opacity: locked ? 0.4 : 1 }}>
+                        <input type="checkbox" disabled={locked} checked={!!shareSel[`${g.key}_${it.key}`]} onChange={() => toggleSel(`${g.key}_${it.key}`)} />
+                        <span>{it.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <label style={styles.shareCheckboxRow}>
+              <input type="checkbox" checked={shareSel.showAmounts} onChange={() => toggleSel("showAmounts")} />
+              <span>金額も表示する</span>
+            </label>
+
+            {buildShareText() && (
+              <div style={styles.sharePreviewBox}>
+                <p style={styles.fieldLabel}>シェアする内容のイメージ</p>
+                <pre style={styles.sharePreviewText}>{buildShareText()}</pre>
+              </div>
+            )}
+
+            <div style={styles.btnRow}>
+              <button style={styles.primaryBtn} onClick={handleShare}>{shareCopied ? "コピーしました" : "この内容でシェアする"}</button>
+              <button style={styles.ghostBtn} onClick={() => setShowSharePicker(false)}>閉じる</button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={styles.categoryPickerRow}>
@@ -2054,7 +2168,7 @@ function BonusAllocRow({ label, pctValue, onChange, amount, accent }) {
   );
 }
 
-function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS, otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset, otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver }) {
+function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, setHoldings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS, otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset, otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver }) {
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [showAddOtherHolding, setShowAddOtherHolding] = useState(false);
   const onChangeAlloc = (key) => (e) => { setAllocTouched(true); setAlloc({ ...alloc, [key]: e.target.value }); };
@@ -2115,15 +2229,22 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
           )}
 
           {!showAddHolding ? (
-            <button style={styles.addRowBtn} onClick={() => setShowAddHolding(true)}>+ 銘柄を追加する</button>
+            <button style={styles.addRowBtn} onClick={() => setShowAddHolding(true)}>+ 銘柄を追加する（まだ保有していない銘柄の積立予定として）</button>
           ) : (
             <div style={{ marginTop: 12 }}>
-              <HoldingsEditor
-                holdings={holdings} holdingInput={holdingInput} setHoldingInput={setHoldingInput} addHolding={addHolding}
-                removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
-                totalHoldingsValue={totalHoldingsValue}
-              />
-              <button style={{ ...styles.ghostBtn, marginTop: 8 }} onClick={() => setShowAddHolding(false)}>閉じる</button>
+              <p style={styles.hint}>保有額は「保有資産」画面で記録します。ここでは積立予定の銘柄名と想定年率だけ登録してください。</p>
+              <div style={styles.grid2}>
+                <Field label="商品名" value={holdingInput.name} onChange={(e) => setHoldingInput({ ...holdingInput, name: e.target.value })} type="text" hint="例：eMAXIS Slim 全世界株式" />
+                <Field label="想定年率" value={holdingInput.rate} onChange={(e) => setHoldingInput({ ...holdingInput, rate: e.target.value })} suffix="%" />
+              </div>
+              <div style={styles.btnRow}>
+                <button style={styles.primaryBtn} onClick={() => {
+                  if (!holdingInput.name) return;
+                  setHoldings([...holdings, { id: Date.now(), name: holdingInput.name, amount: 0, rate: Number(holdingInput.rate) || 0 }]);
+                  setHoldingInput({ name: "", amount: "", rate: "" });
+                }}>登録する</button>
+                <button style={styles.ghostBtn} onClick={() => setShowAddHolding(false)}>閉じる</button>
+              </div>
             </div>
           )}
         </div>
@@ -2204,7 +2325,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
             <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#5C6862" }} />
             <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
-            <Tooltip formatter={(v) => `¥${fmt(v)}`} />
+            <Tooltip content={<TotalTooltip />} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Area type="monotone" dataKey="貯金" stackId="1" stroke="#2F6B4F" fill="#9FC4AC" />
             {projectionSeriesKeys.map((key, i) => (
@@ -2224,7 +2345,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
   );
 }
 
-function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog, monthlyIncomeComputed }) {
+function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog, monthlyIncomeComputed, resetPlanBaseline }) {
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -2280,6 +2401,8 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer></TouchDismissChart>
+          <p style={styles.chartNote}>※「計画上の想定」は最初に立てた計画のまま固定されます。</p>
+          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、計画をリセットする</button>
         </div>
       )}
 
@@ -2534,6 +2657,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
   const [pwMsg, setPwMsg] = useState("");
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [agreedTerms, setAgreedTerms] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
@@ -2665,8 +2789,12 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
                 <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required /></div>
               </label>
             </div>
+            <label style={styles.shareCheckboxRow}>
+              <input type="checkbox" checked={agreedTerms} onChange={(e) => setAgreedTerms(e.target.checked)} required />
+              <span><a href="/terms" target="_blank" rel="noreferrer" style={{ color: "#3D5A99" }}>利用規約・プライバシーポリシー</a>に同意する</span>
+            </label>
             <div style={styles.btnRow}>
-              <button style={styles.primaryBtn} type="submit">登録する</button>
+              <button style={styles.primaryBtn} type="submit" disabled={!agreedTerms}>登録する</button>
               <button style={styles.ghostBtn} type="button" onClick={() => setMode(null)}>キャンセル</button>
             </div>
           </form>
@@ -2904,6 +3032,10 @@ const styles = {
   categoryPickerRow: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   shareBox: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "#F1F4F1", borderRadius: 10, padding: "10px 14px", marginBottom: 16 },
   shareCheckboxRow: { display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#1F2630" },
+  shareGroupLabel: { fontSize: 12.5, fontWeight: 600, color: "#1F2630", marginBottom: 6 },
+  shareItemRow: { display: "flex", flexWrap: "wrap", gap: 14 },
+  sharePreviewBox: { background: "#fff", border: "1px solid #D8E2DA", borderRadius: 10, padding: "12px 14px", marginTop: 14, marginBottom: 10 },
+  sharePreviewText: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, color: "#1F2630", whiteSpace: "pre-wrap", margin: 0 },
   shareBtn: { background: "#1F2630", color: "#fff", border: "none", borderRadius: 18, padding: "8px 16px", fontSize: 12, cursor: "pointer" },
   resetLink: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 12, cursor: "pointer", textDecoration: "underline" },
   pill: { border: "1px solid #D8E2DA", background: "transparent", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, cursor: "pointer", color: "#1F2630" },
@@ -2972,6 +3104,10 @@ const styles = {
   testToggleBtn: { marginTop: 14, background: "transparent", border: "none", color: "#3D5A99", fontSize: 11, textDecoration: "underline", cursor: "pointer" },
   smallLinkBtn: { background: "transparent", border: "none", color: "#3D5A99", fontSize: 11.5, textDecoration: "underline", cursor: "pointer", padding: 0 },
   cancelBox: { marginTop: 20, paddingTop: 14, borderTop: "1px solid #E3E9E4" },
+  tooltipBox: { background: "#fff", border: "1px solid #D8E2DA", borderRadius: 8, padding: "8px 12px", fontSize: 11.5, boxShadow: "0 2px 8px rgba(31,38,48,0.12)" },
+  tooltipLabel: { fontWeight: 600, color: "#1F2630", marginBottom: 4 },
+  tooltipTotal: { fontWeight: 700, color: "#B5582E", marginBottom: 4, borderBottom: "1px solid #E3E9E4", paddingBottom: 4 },
+  tooltipRow: { margin: "1px 0" },
   goalCountdownCard: { background: "#FBF8F0", border: "1px solid #E3DAC2", borderRadius: 14, padding: "16px 18px", marginBottom: 18, display: "flex", flexDirection: "column", gap: 4 },
   goalLabel: { fontSize: 12, color: "#6B6248" },
   goalValue: { fontFamily: "'Fraunces', serif", fontSize: 19, fontWeight: 700, color: "#B5582E" },
