@@ -292,7 +292,8 @@ export default function MyBanker() {
   const [incomeLogs, setIncomeLogs] = useState([]);
   const [incomeLogInput, setIncomeLogInput] = useState({ month: String(new Date().getMonth() + 1), gross: "", takehome: "", hasBonus: false, bonus: "" });
   const [holdings, setHoldings] = useState([]); // {id, name, amount, rate, category}
-  const [otherHoldings, setOtherHoldings] = useState([]); // その他運用（iDeCoなど）専用の個別項目
+  const [nisaPlanIds, setNisaPlanIds] = useState([]); // 株式投資の積立対象に選んだholdingsのid一覧
+  const [otherPlanKeys, setOtherPlanKeys] = useState([]); // その他運用の積立対象に選んだotherAssetsのkey一覧
   const [sideIncomes, setSideIncomes] = useState([]); // 副業 {id, name, amount}
   const [sideIncomeInput, setSideIncomeInput] = useState({ name: "", amount: "" });
   const [showSideIncome, setShowSideIncome] = useState(false);
@@ -383,7 +384,8 @@ export default function MyBanker() {
           }
           if (d.incomeLogs) setIncomeLogs(d.incomeLogs);
           if (d.holdings) setHoldings(d.holdings);
-          if (d.otherHoldings) setOtherHoldings(d.otherHoldings);
+          if (d.nisaPlanIds) setNisaPlanIds(d.nisaPlanIds);
+          if (d.otherPlanKeys) setOtherPlanKeys(d.otherPlanKeys);
           if (d.sideIncomes) setSideIncomes(d.sideIncomes);
           if (d.goalAmount) setGoalAmount(d.goalAmount);
           if (d.planBaseline) setPlanBaseline(d.planBaseline);
@@ -400,9 +402,9 @@ export default function MyBanker() {
 
   useEffect(() => {
     if (!loaded) return;
-    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount, planBaseline };
+    const data = { form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherSplits, sideIncomes, goalAmount, planBaseline, nisaPlanIds, otherPlanKeys };
     storage.set(STORAGE_KEY, JSON.stringify(data), false).catch(() => {});
-  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherHoldings, otherSplits, sideIncomes, goalAmount, planBaseline, loaded]);
+  }, [form, expenses, detailedExpense, riskProfile, incomeMode, bonusHandling, bonusInputType, reviewSpan, email, alloc, bonusAlloc, assetLogs, incomeLogs, holdings, appPhase, otherAssets, holdingsLogs, expenseLogs, nisaSplits, isPremium, otherSplits, sideIncomes, goalAmount, planBaseline, nisaPlanIds, otherPlanKeys, loaded]);
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const updateExpense = (key) => (e) => setExpenses(expenses.map((x) => (x.key === key ? { ...x, amount: e.target.value } : x)));
@@ -507,25 +509,20 @@ export default function MyBanker() {
   }, [assetLogs]);
   const baselineStocks = useMemo(() => (assetLogs[0] ? Number(assetLogs[0].stocks) || 0 : 0), [assetLogs]);
 
-  const growableOtherAssets = useMemo(
-    () => otherAssets.filter((x) => (Number(x.amount) || 0) > 0),
-    [otherAssets]
-  );
-
   // nisaSplitsは「株式投資の金額のうち何%をこの銘柄に割り当てるか」を保持する
   const nisaSplitPctTotal = useMemo(
-    () => holdings.reduce((s, h) => s + (Number(nisaSplits[h.id]) || 0), 0),
-    [holdings, nisaSplits]
+    () => nisaPlanIds.reduce((s, id) => s + (Number(nisaSplits[id]) || 0), 0),
+    [nisaPlanIds, nisaSplits]
   );
   const nisaSplitOver = nisaSplitPctTotal > 100.5;
   const nisaUnassignedPct = Math.max(100 - nisaSplitPctTotal, 0);
   const nisaUnassignedAmount = allocNums.nisa * (nisaUnassignedPct / 100);
   const nisaSplitTotal = allocNums.nisa * (Math.min(nisaSplitPctTotal, 100) / 100); // 円換算（表示用）
 
-  // otherSplitsは「その他運用の金額のうち何%をこの項目に割り当てるか」を保持する
+  // otherSplitsは「その他運用の金額のうち何%をこの項目に割り当てるか」を保持する（otherAssetsのkeyで管理）
   const otherSplitPctTotal = useMemo(
-    () => otherHoldings.reduce((s, h) => s + (Number(otherSplits[h.id]) || 0), 0),
-    [otherHoldings, otherSplits]
+    () => otherPlanKeys.reduce((s, key) => s + (Number(otherSplits[key]) || 0), 0),
+    [otherPlanKeys, otherSplits]
   );
   const otherSplitOver = otherSplitPctTotal > 100.5;
   const otherUnassignedPct = Math.max(100 - otherSplitPctTotal, 0);
@@ -535,31 +532,25 @@ export default function MyBanker() {
   const projection = useMemo(() => {
     const years = [1, 3, 5, 10, 15, 20, 25, 30];
     let savings = baselineSavings;
-    let otherBal = 0;
     let unassignedBal = 0;
+    let otherUnassignedBal = 0;
     const unassignedRate = profile.rate / 12;
     const unassignedMonthly = nisaUnassignedAmount;
     const otherUnassignedMonthly = otherUnassignedAmount;
 
-    // 銘柄ごとの残高（既存の保有額からスタートし、各銘柄自身の年率で計算）
+    // 銘柄ごとの残高（保有資産の保有額からスタートし、各銘柄自身の年率で計算。積立対象でなくても保有分はそのまま成長する）
     const holdingBalances = {};
     holdings.forEach((h) => { holdingBalances[h.id] = Number(h.amount) || 0; });
-    const otherHoldingBalances = {};
-    otherHoldings.forEach((h) => { otherHoldingBalances[h.id] = Number(h.amount) || 0; });
+    const otherBalances = {};
+    otherAssets.forEach((x) => { otherBalances[x.key] = Number(x.amount) || 0; });
 
     const data = [];
     const snapshot = (label, yearsElapsed) => {
       const point = { year: label, 貯金: Math.round(savings) };
       holdings.forEach((h) => { point[h.name] = Math.round(holdingBalances[h.id] || 0); });
-      otherHoldings.forEach((h) => { point[h.name] = Math.round(otherHoldingBalances[h.id] || 0); });
+      otherAssets.forEach((x) => { if (x.label) point[x.label] = Math.round(otherBalances[x.key] || 0); });
       if (unassignedMonthly > 0) point["新規投資（未割り当て）"] = Math.round(unassignedBal);
-      if (otherUnassignedMonthly > 0) point["その他運用（未割り当て）"] = Math.round(otherBal);
-      // その他資産（暗号資産・FX・ポイントなど）も、株式や金と同様に年率を複利（指数関数的成長）で概算
-      growableOtherAssets.forEach((x) => {
-        const principal = Number(x.amount) || 0;
-        const rate = (Number(x.rate) || 0) / 100;
-        point[x.label] = Math.round(principal * Math.pow(1 + rate, yearsElapsed));
-      });
+      if (otherUnassignedMonthly > 0) point["その他運用（未割り当て）"] = Math.round(otherUnassignedBal);
       return point;
     };
     data.push(snapshot("現在", 0));
@@ -567,52 +558,49 @@ export default function MyBanker() {
     for (let y = 1; y <= 30; y++) {
       for (let m = 0; m < 12; m++) {
         savings += allocNums.savings;
-        otherBal = otherBal * (1 + unassignedRate) + otherUnassignedMonthly;
 
         holdings.forEach((h) => {
           const hRate = (Number(h.rate) || 0) / 100 / 12;
-          const monthlyAdd = allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100);
+          const monthlyAdd = nisaPlanIds.includes(h.id) ? allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100) : 0;
           holdingBalances[h.id] = (holdingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
         });
 
-        otherHoldings.forEach((h) => {
-          const hRate = (Number(h.rate) || 0) / 100 / 12;
-          const monthlyAdd = allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100);
-          otherHoldingBalances[h.id] = (otherHoldingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
+        otherAssets.forEach((x) => {
+          const xRate = (Number(x.rate) || 0) / 100 / 12;
+          const monthlyAdd = otherPlanKeys.includes(x.key) ? allocNums.other * ((Number(otherSplits[x.key]) || 0) / 100) : 0;
+          otherBalances[x.key] = (otherBalances[x.key] || 0) * (1 + xRate) + monthlyAdd;
         });
 
         unassignedBal = unassignedBal * (1 + unassignedRate) + unassignedMonthly;
+        otherUnassignedBal = otherUnassignedBal * (1 + unassignedRate) + otherUnassignedMonthly;
       }
       if (bonusHandling === "lump") {
         savings += bonusAllocNums.savings;
-        otherBal += bonusAllocNums.other;
+        otherUnassignedBal += bonusAllocNums.other;
         unassignedBal += bonusAllocNums.nisa;
       }
       if (years.includes(y)) data.push(snapshot(`${y}年後`, y));
     }
     return data;
-  }, [allocNums, baselineSavings, holdings, otherHoldings, profile, bonusHandling, bonusAllocNums, nisaSplits, otherSplits, nisaUnassignedAmount, otherUnassignedAmount, growableOtherAssets]);
+  }, [allocNums, baselineSavings, holdings, otherAssets, profile, bonusHandling, bonusAllocNums, nisaSplits, otherSplits, nisaPlanIds, otherPlanKeys, nisaUnassignedAmount, otherUnassignedAmount]);
 
   // 目標金額まで何ヶ月かかるかを、同じ前提（積立・利率）で月次シミュレーションして求める
   const monthsToGoal = useMemo(() => {
     const goal = Number(goalAmount) || 0;
     if (goal <= 0) return null;
     let savings = baselineSavings;
-    let otherBal = 0;
     let unassignedBal = 0;
+    let otherUnassignedBal = 0;
     const unassignedRate = profile.rate / 12;
     const holdingBalances = {};
     holdings.forEach((h) => { holdingBalances[h.id] = Number(h.amount) || 0; });
-    const otherHoldingBalances = {};
-    otherHoldings.forEach((h) => { otherHoldingBalances[h.id] = Number(h.amount) || 0; });
-    const otherAssetsBalance = {};
-    growableOtherAssets.forEach((x) => { otherAssetsBalance[x.label] = Number(x.amount) || 0; });
+    const otherBalances = {};
+    otherAssets.forEach((x) => { otherBalances[x.key] = Number(x.amount) || 0; });
 
     const currentTotal = () => {
-      let t = savings + otherBal + unassignedBal;
+      let t = savings + unassignedBal + otherUnassignedBal;
       holdings.forEach((h) => { t += holdingBalances[h.id] || 0; });
-      otherHoldings.forEach((h) => { t += otherHoldingBalances[h.id] || 0; });
-      growableOtherAssets.forEach((x) => { t += otherAssetsBalance[x.label] || 0; });
+      otherAssets.forEach((x) => { t += otherBalances[x.key] || 0; });
       return t;
     };
 
@@ -621,35 +609,30 @@ export default function MyBanker() {
     const maxMonths = 600; // 50年でキャップ
     for (let m = 1; m <= maxMonths; m++) {
       savings += allocNums.savings;
-      otherBal = otherBal * (1 + unassignedRate) + otherUnassignedAmount;
       holdings.forEach((h) => {
         const hRate = (Number(h.rate) || 0) / 100 / 12;
-        const monthlyAdd = allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100);
+        const monthlyAdd = nisaPlanIds.includes(h.id) ? allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100) : 0;
         holdingBalances[h.id] = (holdingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
       });
-      otherHoldings.forEach((h) => {
-        const hRate = (Number(h.rate) || 0) / 100 / 12;
-        const monthlyAdd = allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100);
-        otherHoldingBalances[h.id] = (otherHoldingBalances[h.id] || 0) * (1 + hRate) + monthlyAdd;
+      otherAssets.forEach((x) => {
+        const xRate = (Number(x.rate) || 0) / 100 / 12;
+        const monthlyAdd = otherPlanKeys.includes(x.key) ? allocNums.other * ((Number(otherSplits[x.key]) || 0) / 100) : 0;
+        otherBalances[x.key] = (otherBalances[x.key] || 0) * (1 + xRate) + monthlyAdd;
       });
       unassignedBal = unassignedBal * (1 + unassignedRate) + nisaUnassignedAmount;
-      growableOtherAssets.forEach((x) => {
-        const rate = (Number(x.rate) || 0) / 100 / 12;
-        otherAssetsBalance[x.label] = (otherAssetsBalance[x.label] || 0) * (1 + rate);
-      });
+      otherUnassignedBal = otherUnassignedBal * (1 + unassignedRate) + otherUnassignedAmount;
       if (currentTotal() >= goal) return m;
     }
     return null; // 50年以内に到達しない見込み
-  }, [goalAmount, baselineSavings, holdings, otherHoldings, profile, allocNums, nisaSplits, otherSplits, nisaUnassignedAmount, otherUnassignedAmount, growableOtherAssets]);
+  }, [goalAmount, baselineSavings, holdings, otherAssets, allocNums, nisaSplits, otherSplits, nisaPlanIds, otherPlanKeys, nisaUnassignedAmount, otherUnassignedAmount]);
 
   const projectionSeriesKeys = useMemo(() => {
     const keys = holdings.map((h) => h.name);
     if (nisaUnassignedAmount > 0) keys.push("新規投資（未割り当て）");
-    otherHoldings.forEach((h) => keys.push(h.name));
+    otherAssets.forEach((x) => { if (x.label) keys.push(x.label); });
     if (otherUnassignedAmount > 0) keys.push("その他運用（未割り当て）");
-    growableOtherAssets.forEach((x) => keys.push(x.label));
     return keys;
-  }, [holdings, nisaUnassignedAmount, otherHoldings, otherUnassignedAmount, growableOtherAssets]);
+  }, [holdings, nisaUnassignedAmount, otherAssets, otherUnassignedAmount]);
 
   const SERIES_COLORS = ["#3D5A99", "#B5582E", "#9A4A8C", "#5C8A99", "#C9A227", "#6B4F9A", "#4F8FA8", "#A8527A"];
 
@@ -892,12 +875,32 @@ export default function MyBanker() {
     setShowSuggest(false);
   };
 
-  const addOtherHolding = () => {
-    if (!otherHoldingInput.name) return;
-    setOtherHoldings([...otherHoldings, { id: Date.now(), name: otherHoldingInput.name, amount: Number(otherHoldingInput.amount) || 0, rate: Number(otherHoldingInput.rate) || 0 }]);
-    setOtherHoldingInput({ name: "", amount: "", rate: "" });
+  // 「積立対象」に既存の保有銘柄を選ぶ（保有資産自体は変更しない）
+  const addHoldingToPlan = (id) => { if (!nisaPlanIds.includes(id)) setNisaPlanIds([...nisaPlanIds, id]); };
+  // 積立対象から外す（保有資産からは削除しない）
+  const removeHoldingFromPlan = (id) => {
+    setNisaPlanIds(nisaPlanIds.filter((x) => x !== id));
+    const next = { ...nisaSplits }; delete next[id]; setNisaSplits(next);
   };
-  const removeOtherHolding = (id) => setOtherHoldings(otherHoldings.filter((h) => h.id !== id));
+  // まだ持っていない銘柄を、新規に保有資産へ登録した上で積立対象に追加する
+  const addNewHoldingToPlan = (name, rate) => {
+    if (!name) return;
+    const id = Date.now();
+    setHoldings([...holdings, { id, name, amount: 0, rate: Number(rate) || 0 }]);
+    setNisaPlanIds([...nisaPlanIds, id]);
+  };
+
+  const addOtherAssetToPlan = (key) => { if (!otherPlanKeys.includes(key)) setOtherPlanKeys([...otherPlanKeys, key]); };
+  const removeOtherAssetFromPlan = (key) => {
+    setOtherPlanKeys(otherPlanKeys.filter((x) => x !== key));
+    const next = { ...otherSplits }; delete next[key]; setOtherSplits(next);
+  };
+  const addNewOtherAssetToPlan = (name, rate) => {
+    if (!name) return;
+    const key = "custom-" + Date.now();
+    setOtherAssets([...otherAssets, { key, label: name, amount: "0", rate: String(Number(rate) || 0), custom: true }]);
+    setOtherPlanKeys([...otherPlanKeys, key]);
+  };
 
   const addSideIncome = () => {
     if (!sideIncomeInput.amount) return;
@@ -905,10 +908,6 @@ export default function MyBanker() {
     setSideIncomeInput({ name: "", amount: "" });
   };
   const removeSideIncome = (id) => setSideIncomes(sideIncomes.filter((s) => s.id !== id));
-  const pickOtherPreset = (p) => {
-    setOtherHoldingInput({ name: p.name, amount: otherHoldingInput.amount, rate: String(p.rate) });
-    setShowOtherSuggest(false);
-  };
 
   const saveHoldingsSnapshot = () => {
     const todayKey = new Date().toLocaleDateString("ja-JP");
@@ -965,7 +964,8 @@ export default function MyBanker() {
     bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, bonusAnnualNet,
     projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault,
     nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS,
-    otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset,
+    otherHoldingInput, setOtherHoldingInput, nisaPlanIds, setNisaPlanIds, addHoldingToPlan, removeHoldingFromPlan, addNewHoldingToPlan,
+    otherPlanKeys, setOtherPlanKeys, addOtherAssetToPlan, removeOtherAssetFromPlan, addNewOtherAssetToPlan,
     otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver,
     reviewSpan, setReviewSpan, email, setEmail,
     assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo,
@@ -1605,8 +1605,8 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer></TouchDismissChart>
-          <p style={styles.chartNote}>※ 資産の記録を保存するたびに、この比較グラフが更新されます。「計画上の想定」は最初に立てた計画のまま固定されます。</p>
-          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、計画をリセットする</button>
+          <p style={styles.chartNote}>※ 資産の記録を保存するたびに、この比較グラフが更新されます。「資産の推移予想」は最初に立てた時点のまま固定されます。</p>
+          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、資産の推移予想をリセットする</button>
         </div>
       )}
 
@@ -1625,7 +1625,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
   );
 }
 
-function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, premiumUntil, premiumSource, setDashView, children }) {
+function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferralCode, premiumUntil, premiumSource, setDashView, isAnonymousUser, children }) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [copied, setCopied] = useState(false);
@@ -1722,10 +1722,12 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
           <span style={styles.paywallPrice}>月額 ¥500</span>
           <span style={styles.paywallNote}>友人を1人紹介すると、その月は無料</span>
         </div>
-        <div style={styles.trialNoticeBox}>
-          <span>会員登録（無料）するだけで、30日間すべて無料で閲覧できます。</span>
-          {setDashView && <button style={styles.smallLinkBtn} onClick={() => setDashView("account")}>会員登録はこちら →</button>}
-        </div>
+        {isAnonymousUser !== false && (
+          <div style={styles.trialNoticeBox}>
+            <span>会員登録（無料）するだけで、30日間すべて無料で閲覧できます。</span>
+            {setDashView && <button style={styles.smallLinkBtn} onClick={() => setDashView("account")}>会員登録はこちら →</button>}
+          </div>
+        )}
         {incomingReferralCode && (
           <p style={styles.hint}>紹介コード「{incomingReferralCode}」を適用して登録します。</p>
         )}
@@ -1758,7 +1760,7 @@ function RankingPanel(props) {
     assetDistribution, incomePercentile, incomeDistribution, annualIncomeEstimateGross,
     expenseCategoryComparison, savingsRatePeer, savingsRateUser, savingsRateDiff,
     growthRateInfo, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
-    myReferralCode, incomingReferralCode, premiumUntil, premiumSource, setDashView,
+    myReferralCode, incomingReferralCode, premiumUntil, premiumSource, setDashView, isAnonymousUser,
     incomeBracket, incomeBracketAssetPercentile, incomeBracketAssetDistribution,
     incomeBracketPeerMonthlyExpense, incomeBracketExpenseDiff, incomeBracketExpenseDiffPct, incomeBracketSavingsRateDiff,
     primeAssetPercentile, primeAssetDistribution, primeIncomePercentile, primeIncomeDistribution,
@@ -1831,7 +1833,9 @@ function RankingPanel(props) {
     if (lines.length === 1) return null; // 何も選ばれていない
     if (lines[lines.length - 1] === "") lines.pop();
     lines.push("━━━━━━━━━━");
-    lines.push("あなたも無料で順位をチェック → https://mybanker-app.vercel.app");
+    lines.push("あなたも無料で順位をチェック");
+    lines.push("👇");
+    lines.push("https://mybanker-app.vercel.app");
     return lines.join("\n");
   };
 
@@ -1933,7 +1937,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView} isAnonymousUser={isAnonymousUser}>
             <div>
               <p style={styles.chartTitle}>年収の同年代比較</p>
               <div style={styles.percentileRow}>
@@ -2036,7 +2040,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView} isAnonymousUser={isAnonymousUser}>
             <div>
               <p style={styles.chartTitle}>支出の同収入帯比較</p>
               <div style={styles.statusBanner2(incomeBracketExpenseDiff <= 0)}>
@@ -2091,7 +2095,7 @@ function RankingPanel(props) {
 
           <div style={styles.divider} />
 
-          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView}>
+          <PaywallGate isPremium={isPremium} setIsPremium={setIsPremium} myReferralCode={myReferralCode} incomingReferralCode={incomingReferralCode} premiumUntil={premiumUntil} premiumSource={premiumSource} setDashView={setDashView} isAnonymousUser={isAnonymousUser}>
             <div>
               <p style={styles.chartTitle}>年収の比較</p>
               <div style={styles.percentileRow}>
@@ -2168,13 +2172,23 @@ function BonusAllocRow({ label, pctValue, onChange, amount, accent }) {
   );
 }
 
-function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, setHoldings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS, otherHoldings, otherHoldingInput, setOtherHoldingInput, addOtherHolding, removeOtherHolding, showOtherSuggest, setShowOtherSuggest, pickOtherPreset, otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver }) {
+function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualNet, alloc, setAlloc, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder, bonusAlloc, setBonusAlloc, bonusAllocNums, bonusPctTotal, riskProfile, setRiskProfile, projection, furusatoApprox, annualIncomeEstimateNet, annualIncomeEstimateGross, resetAllocToDefault, holdings, nisaSplits, setNisaSplits, nisaSplitTotal, nisaSplitPctTotal, nisaUnassignedAmount, nisaSplitOver, projectionSeriesKeys, SERIES_COLORS, otherAssets, otherHoldingInput, setOtherHoldingInput, nisaPlanIds, addHoldingToPlan, removeHoldingFromPlan, addNewHoldingToPlan, otherPlanKeys, addOtherAssetToPlan, removeOtherAssetFromPlan, addNewOtherAssetToPlan, otherSplits, setOtherSplits, otherSplitTotal, otherSplitPctTotal, otherUnassignedAmount, otherSplitOver }) {
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [showAddOtherHolding, setShowAddOtherHolding] = useState(false);
+  const [newHoldingName, setNewHoldingName] = useState("");
+  const [newHoldingRate, setNewHoldingRate] = useState("");
+  const [newOtherName, setNewOtherName] = useState("");
+  const [newOtherRate, setNewOtherRate] = useState("");
   const onChangeAlloc = (key) => (e) => { setAllocTouched(true); setAlloc({ ...alloc, [key]: e.target.value }); };
   const onChangeBonusAlloc = (key) => (e) => setBonusAlloc({ ...bonusAlloc, [key]: e.target.value });
   const onChangeNisaSplit = (holdingId) => (e) => setNisaSplits({ ...nisaSplits, [holdingId]: e.target.value });
-  const onChangeOtherSplit = (holdingId) => (e) => setOtherSplits({ ...otherSplits, [holdingId]: e.target.value });
+  const onChangeOtherSplit = (key) => (e) => setOtherSplits({ ...otherSplits, [key]: e.target.value });
+
+  const planHoldings = holdings.filter((h) => nisaPlanIds.includes(h.id));
+  const availableHoldings = holdings.filter((h) => !nisaPlanIds.includes(h.id));
+  const planOtherAssets = otherAssets.filter((x) => otherPlanKeys.includes(x.key) && x.label);
+  const availableOtherAssets = otherAssets.filter((x) => !otherPlanKeys.includes(x.key) && x.label);
+
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>配分シミュレーター</p>
@@ -2200,12 +2214,12 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
         <AllocRow label="株式投資（NISAなど）" pctValue={alloc.nisa} onChange={onChangeAlloc("nisa")} amount={allocNums.nisa} note="つみたて投資枠・成長投資枠・特定口座などを含めて自由に%を決められます" accent="#3D5A99" />
 
         <div style={styles.nisaTargetBox}>
-          <span style={styles.fieldLabel}>この株式投資額（¥{fmt(allocNums.nisa)}）を、複数の銘柄に分けて%で割り当てられます（任意）</span>
-          {holdings.length === 0 ? (
-            <p style={styles.hint}>まだ銘柄が登録されていないので、追加投資はコースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。</p>
+          <span style={styles.fieldLabel}>この株式投資額（¥{fmt(allocNums.nisa)}）を、積立対象に選んだ銘柄に分けて%で割り当てられます（任意）</span>
+          {planHoldings.length === 0 ? (
+            <p style={styles.hint}>まだ積立対象の銘柄が選ばれていないので、追加投資はコースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。</p>
           ) : (
             <>
-              {holdings.map((h) => (
+              {planHoldings.map((h) => (
                 <div key={h.id} style={styles.nisaSplitRow}>
                   <span style={styles.nisaSplitLabel}>{h.name}（年率{h.rate}%）</span>
                   <div style={styles.allocRight}>
@@ -2214,7 +2228,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
                       <span style={styles.suffix}>%</span>
                     </div>
                     <div style={styles.allocPct}>¥{fmt(allocNums.nisa * ((Number(nisaSplits[h.id]) || 0) / 100))}</div>
-                    <button style={styles.removeBtn} onClick={() => removeHolding(h.id)}>×</button>
+                    <button style={styles.removeBtn} onClick={() => removeHoldingFromPlan(h.id)} title="積立対象から外す（保有資産からは削除されません）">×</button>
                   </div>
                 </div>
               ))}
@@ -2223,25 +2237,39 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
                 {nisaSplitOver && <span style={styles.errorText}>　100%を超えています。</span>}
               </div>
               <p style={styles.hint}>
-                残り ¥{fmt(nisaUnassignedAmount)} は未割り当てとして、コースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。登録済みの銘柄は、割り当てがなくても既存の保有額がそれぞれ自分自身の利率で計算され続けます。
+                残り ¥{fmt(nisaUnassignedAmount)} は未割り当てとして、コースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。積立対象でなくても、保有資産に登録済みの銘柄はそれぞれ自分自身の利率で成長し続けます。
               </p>
             </>
           )}
 
           {!showAddHolding ? (
-            <button style={styles.addRowBtn} onClick={() => setShowAddHolding(true)}>+ 銘柄を追加する（まだ保有していない銘柄の積立予定として）</button>
+            <button style={styles.addRowBtn} onClick={() => setShowAddHolding(true)}>+ 銘柄を追加する</button>
           ) : (
             <div style={{ marginTop: 12 }}>
-              <p style={styles.hint}>保有額は「保有資産」画面で記録します。ここでは積立予定の銘柄名と想定年率だけ登録してください。</p>
+              {availableHoldings.length > 0 && (
+                <>
+                  <p style={styles.fieldLabel}>保有資産に登録済みの銘柄から選ぶ（年率は保有資産の設定がそのまま使われます）</p>
+                  <div style={styles.pickerList}>
+                    {availableHoldings.map((h) => (
+                      <button key={h.id} style={styles.pickerItemBtn} onClick={() => { addHoldingToPlan(h.id); setShowAddHolding(false); }}>
+                        + {h.name}（年率{h.rate}%）
+                      </button>
+                    ))}
+                  </div>
+                  <div style={styles.divider} />
+                </>
+              )}
+              <p style={styles.fieldLabel}>まだ保有していない銘柄を新しく追加する</p>
               <div style={styles.grid2}>
-                <Field label="商品名" value={holdingInput.name} onChange={(e) => setHoldingInput({ ...holdingInput, name: e.target.value })} type="text" hint="例：eMAXIS Slim 全世界株式" />
-                <Field label="想定年率" value={holdingInput.rate} onChange={(e) => setHoldingInput({ ...holdingInput, rate: e.target.value })} suffix="%" />
+                <Field label="商品名" value={newHoldingName} onChange={(e) => setNewHoldingName(e.target.value)} type="text" hint="例：eMAXIS Slim 全世界株式" />
+                <Field label="想定年率" value={newHoldingRate} onChange={(e) => setNewHoldingRate(e.target.value)} suffix="%" />
               </div>
               <div style={styles.btnRow}>
                 <button style={styles.primaryBtn} onClick={() => {
-                  if (!holdingInput.name) return;
-                  setHoldings([...holdings, { id: Date.now(), name: holdingInput.name, amount: 0, rate: Number(holdingInput.rate) || 0 }]);
-                  setHoldingInput({ name: "", amount: "", rate: "" });
+                  if (!newHoldingName) return;
+                  addNewHoldingToPlan(newHoldingName, newHoldingRate);
+                  setNewHoldingName(""); setNewHoldingRate("");
+                  setShowAddHolding(false);
                 }}>登録する</button>
                 <button style={styles.ghostBtn} onClick={() => setShowAddHolding(false)}>閉じる</button>
               </div>
@@ -2252,21 +2280,21 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
         <AllocRow label="その他運用" pctValue={alloc.other} onChange={onChangeAlloc("other")} amount={allocNums.other} note="暗号資産、FX、ポイントなど" accent="#7A5C3D" />
 
         <div style={styles.nisaTargetBox}>
-          <span style={styles.fieldLabel}>このその他運用額（¥{fmt(allocNums.other)}）も、暗号資産・FX・ポイントなどの項目に分けて%で割り当てられます（任意）</span>
-          {otherHoldings.length === 0 ? (
-            <p style={styles.hint}>まだ項目が登録されていないので、追加投資はコースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。</p>
+          <span style={styles.fieldLabel}>このその他運用額（¥{fmt(allocNums.other)}）も、積立対象に選んだ項目に分けて%で割り当てられます（任意）</span>
+          {planOtherAssets.length === 0 ? (
+            <p style={styles.hint}>まだ積立対象の項目が選ばれていないので、追加投資はコースの想定利率（{(RISK_PROFILES[riskProfile].rate * 100).toFixed(1)}%）で計算されます。</p>
           ) : (
             <>
-              {otherHoldings.map((h) => (
-                <div key={h.id} style={styles.nisaSplitRow}>
-                  <span style={styles.nisaSplitLabel}>{h.name}（年率{h.rate}%）</span>
+              {planOtherAssets.map((x) => (
+                <div key={x.key} style={styles.nisaSplitRow}>
+                  <span style={styles.nisaSplitLabel}>{x.label}（年率{x.rate}%）</span>
                   <div style={styles.allocRight}>
                     <div style={styles.fieldInputRow}>
-                      <NumInput value={otherSplits[h.id] || ""} onChange={onChangeOtherSplit(h.id)} placeholder="0" />
+                      <NumInput value={otherSplits[x.key] || ""} onChange={onChangeOtherSplit(x.key)} placeholder="0" />
                       <span style={styles.suffix}>%</span>
                     </div>
-                    <div style={styles.allocPct}>¥{fmt(allocNums.other * ((Number(otherSplits[h.id]) || 0) / 100))}</div>
-                    <button style={styles.removeBtn} onClick={() => removeOtherHolding(h.id)}>×</button>
+                    <div style={styles.allocPct}>¥{fmt(allocNums.other * ((Number(otherSplits[x.key]) || 0) / 100))}</div>
+                    <button style={styles.removeBtn} onClick={() => removeOtherAssetFromPlan(x.key)} title="積立対象から外す（保有資産からは削除されません）">×</button>
                   </div>
                 </div>
               ))}
@@ -2281,15 +2309,34 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
           )}
 
           {!showAddOtherHolding ? (
-            <button style={styles.addRowBtn} onClick={() => setShowAddOtherHolding(true)}>+ 項目を追加する（例：暗号資産、FX、ポイントなど）</button>
+            <button style={styles.addRowBtn} onClick={() => setShowAddOtherHolding(true)}>+ 項目を追加する</button>
           ) : (
             <div style={{ marginTop: 12 }}>
+              {availableOtherAssets.length > 0 && (
+                <>
+                  <p style={styles.fieldLabel}>保有資産に登録済みの項目から選ぶ（年率は保有資産の設定がそのまま使われます）</p>
+                  <div style={styles.pickerList}>
+                    {availableOtherAssets.map((x) => (
+                      <button key={x.key} style={styles.pickerItemBtn} onClick={() => { addOtherAssetToPlan(x.key); setShowAddOtherHolding(false); }}>
+                        + {x.label}（年率{x.rate}%）
+                      </button>
+                    ))}
+                  </div>
+                  <div style={styles.divider} />
+                </>
+              )}
+              <p style={styles.fieldLabel}>まだ保有していない項目を新しく追加する（例：暗号資産、FX、ポイントなど）</p>
               <div style={styles.grid2}>
-                <Field label="項目名" value={otherHoldingInput.name} onChange={(e) => setOtherHoldingInput({ ...otherHoldingInput, name: e.target.value })} type="text" hint="例：ビットコイン、ポイント運用" />
-                <Field label="想定年率" value={otherHoldingInput.rate} onChange={(e) => setOtherHoldingInput({ ...otherHoldingInput, rate: e.target.value })} suffix="%" />
+                <Field label="項目名" value={newOtherName} onChange={(e) => setNewOtherName(e.target.value)} type="text" hint="例：ビットコイン、ポイント運用" />
+                <Field label="想定年率" value={newOtherRate} onChange={(e) => setNewOtherRate(e.target.value)} suffix="%" />
               </div>
               <div style={styles.btnRow}>
-                <button style={styles.primaryBtn} onClick={() => { addOtherHolding(); }}>登録する</button>
+                <button style={styles.primaryBtn} onClick={() => {
+                  if (!newOtherName) return;
+                  addNewOtherAssetToPlan(newOtherName, newOtherRate);
+                  setNewOtherName(""); setNewOtherRate("");
+                  setShowAddOtherHolding(false);
+                }}>登録する</button>
                 <button style={styles.ghostBtn} onClick={() => setShowAddOtherHolding(false)}>閉じる</button>
               </div>
             </div>
@@ -2397,12 +2444,12 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
               <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
               <Tooltip formatter={(v) => `¥${fmt(v)}`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} name="資産の推移予想" />
               <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer></TouchDismissChart>
-          <p style={styles.chartNote}>※「計画上の想定」は最初に立てた計画のまま固定されます。</p>
-          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、計画をリセットする</button>
+          <p style={styles.chartNote}>※「資産の推移予想」は最初に立てた時点のまま固定されます。</p>
+          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、資産の推移予想をリセットする</button>
         </div>
       )}
 
