@@ -61,12 +61,12 @@ const RISK_PROFILES = {
 const REVIEW_SPANS = { daily: "毎日", weekly: "毎週", monthly: "毎月", quarterly: "四半期ごと", halfyear: "半年ごと", yearly: "一年ごと" };
 
 const DEFAULT_EXPENSES = [
-  { key: "rent", label: "家賃・住居費", amount: "85000" },
-  { key: "food", label: "食費", amount: "40000" },
-  { key: "social", label: "交際費", amount: "15000" },
-  { key: "subs", label: "通信・サブスク", amount: "12000" },
-  { key: "beauty", label: "美容（美容院・ネイル・化粧品・衣服）", amount: "20000" },
-  { key: "insurance", label: "保険", amount: "10000" },
+  { key: "rent", label: "家賃・住居費", amount: "" },
+  { key: "food", label: "食費", amount: "" },
+  { key: "social", label: "交際費", amount: "" },
+  { key: "subs", label: "通信・サブスク", amount: "" },
+  { key: "beauty", label: "美容（美容院・ネイル・化粧品・衣服）", amount: "" },
+  { key: "insurance", label: "保険", amount: "" },
 ];
 
 // 単身世帯・年代別の金融資産統計（万円）と平均月間消費支出（万円）の目安。
@@ -261,9 +261,13 @@ const HOLDING_PRESETS = [
   { name: "eMAXIS Slim 先進国株式インデックス", rate: 6.0, category: "投資信託" },
   { name: "楽天・全世界株式インデックス・ファンド", rate: 6.5, category: "投資信託" },
   { name: "SBI・V・S&P500インデックス・ファンド", rate: 7.0, category: "投資信託" },
-  { name: "ビットコイン（BTC）", rate: 15.0, category: "暗号資産" },
-  { name: "イーサリアム（ETH）", rate: 13.0, category: "暗号資産" },
   { name: "金（ゴールド）", rate: 4.0, category: "コモディティ" },
+];
+
+const OTHER_ASSET_PRESETS = [
+  { name: "ビットコイン（BTC）", rate: 15.0 },
+  { name: "イーサリアム（ETH）", rate: 13.0 },
+  { name: "リップル（XRP）", rate: 10.0 },
 ];
 
 const STORAGE_KEY = "mybanker:profile:v6";
@@ -284,11 +288,7 @@ export default function MyBanker() {
   const [email, setEmail] = useState("");
   const [assetLogs, setAssetLogs] = useState([]);
   const [assetInput, setAssetInput] = useState({ savings: "" });
-  const [otherAssets, setOtherAssets] = useState([
-    { key: "crypto", label: "暗号資産", amount: "0", rate: "0" },
-    { key: "fx", label: "FX", amount: "0", rate: "0" },
-    { key: "points", label: "ポイント", amount: "0", rate: "0" },
-  ]);
+  const [otherAssets, setOtherAssets] = useState([]);
   const [incomeLogs, setIncomeLogs] = useState([]);
   const [incomeLogInput, setIncomeLogInput] = useState({ month: String(new Date().getMonth() + 1), gross: "", takehome: "", hasBonus: false, bonus: "" });
   const [holdings, setHoldings] = useState([]); // {id, name, amount, rate, category}
@@ -1230,36 +1230,60 @@ function RiskStep({ riskProfile, setRiskProfile, onNext, onBack }) {
 }
 
 function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal }) {
+  const [suggestKey, setSuggestKey] = useState(null);
+  const pickOtherAssetPreset = (key, p) => {
+    updateOtherAssetLabel(key)({ target: { value: p.name } });
+    updateOtherAssetRate(key)({ target: { value: String(p.rate) } });
+    setSuggestKey(null);
+  };
   return (
     <div>
       <div style={styles.totalLineTop}>その他資産合計：<span style={styles.totalValue}>¥{fmt(otherAssetsTotal)}</span></div>
       <p style={styles.hint}>暗号資産、FX、ポイントなど、お好きな項目を追加・編集できます。想定年率を入れると、推移予想に複利（年率に応じた指数関数的な成長）で反映されます。</p>
       <div style={styles.otherAssetList}>
-        {otherAssets.map((x) => (
-          <div key={x.key} style={styles.otherAssetCard}>
-            <div style={styles.otherAssetCardTop}>
-              <input style={styles.otherAssetLabelInput} value={x.label} placeholder="項目名" onChange={updateOtherAssetLabel(x.key)} />
-              <button style={styles.removeBtn} onClick={() => removeOtherAsset(x.key)}>×</button>
-            </div>
-            <div style={styles.otherAssetCardRow}>
-              <label style={styles.otherAssetFieldWrap}>
-                <span style={styles.fieldLabel}>金額</span>
-                <div style={styles.fieldInputRow}>
-                  <NumInput value={x.amount} onChange={updateOtherAsset(x.key)} />
-                  <span style={styles.suffix}>円</span>
+        {otherAssets.map((x) => {
+          const filtered = OTHER_ASSET_PRESETS.filter((p) => x.label && p.name.toLowerCase().includes(x.label.toLowerCase()));
+          return (
+            <div key={x.key} style={styles.otherAssetCard}>
+              <div style={styles.otherAssetCardTop}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <input
+                    style={styles.otherAssetLabelInput} value={x.label} placeholder="項目名（例：ビットコイン）"
+                    onChange={(e) => { updateOtherAssetLabel(x.key)(e); setSuggestKey(x.key); }}
+                    onFocus={() => setSuggestKey(x.key)}
+                  />
+                  {suggestKey === x.key && filtered.length > 0 && (
+                    <div style={styles.suggestBox}>
+                      {filtered.map((p) => (
+                        <div key={p.name} style={styles.suggestItem} onClick={() => pickOtherAssetPreset(x.key, p)}>
+                          <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </label>
-              <label style={styles.otherAssetFieldWrap}>
-                <span style={styles.fieldLabel}>想定年率</span>
-                <div style={styles.fieldInputRow}>
-                  <NumInput value={x.rate} onChange={updateOtherAssetRate(x.key)} />
-                  <span style={styles.suffix}>%</span>
-                </div>
-              </label>
+                <button style={styles.removeBtn} onClick={() => removeOtherAsset(x.key)}>×</button>
+              </div>
+              <div style={styles.otherAssetCardRow}>
+                <label style={styles.otherAssetFieldWrap}>
+                  <span style={styles.fieldLabel}>金額</span>
+                  <div style={styles.fieldInputRow}>
+                    <NumInput value={x.amount} onChange={updateOtherAsset(x.key)} />
+                    <span style={styles.suffix}>円</span>
+                  </div>
+                </label>
+                <label style={styles.otherAssetFieldWrap}>
+                  <span style={styles.fieldLabel}>想定年率</span>
+                  <div style={styles.fieldInputRow}>
+                    <NumInput value={x.rate} onChange={updateOtherAssetRate(x.key)} />
+                    <span style={styles.suffix}>%</span>
+                  </div>
+                </label>
+              </div>
             </div>
-          </div>
-        ))}
-        <button style={styles.addRowBtn} onClick={addOtherAssetRow}>+ 項目を追加する（例：FX、ポイントなど）</button>
+          );
+        })}
+        <button style={styles.addRowBtn} onClick={addOtherAssetRow}>+ 項目を追加する（例：暗号資産、FX、ポイントなど）</button>
       </div>
     </div>
   );
@@ -1748,7 +1772,6 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
           </div>
         )}
 
-        <button style={styles.testToggleBtn} onClick={() => setIsPremium(true)}>（テスト用）プレミアム表示を確認する</button>
       </div>
     </div>
   );
@@ -1966,21 +1989,11 @@ function RankingPanel(props) {
 
               <div style={styles.divider} />
 
-              <p style={styles.chartTitle}>支出の同年代比較（月額・費目別）</p>
+              <p style={styles.chartTitle}>支出の同年代比較</p>
               <div style={styles.statusBanner2(expenseDiffVsPeer <= 0)}>
                 合計で同年代平均（¥{fmt(peerMonthlyExpense)}）より{expenseDiffVsPeer > 0 ? `¥${fmt(Math.abs(expenseDiffVsPeer))}（+${Math.abs(expenseDiffPct)}%）多い` : `¥${fmt(Math.abs(expenseDiffVsPeer))}（${expenseDiffPct}%）少ない`}目安です
               </div>
-              <div style={styles.ledger}>
-                {expenseCategoryComparison.map((c) => (
-                  <div key={c.label} style={styles.ledgerRow}>
-                    <span style={styles.ledgerLabel}>{c.label}</span>
-                    <span style={{ ...styles.ledgerValue, color: c.diffPct > 0 ? "#9A4A1F" : "#2F6B4F" }}>
-                      {c.diffPct > 0 ? `+${c.diffPct}%` : `${c.diffPct}%`}（¥{fmt(c.userAmount)} / 平均¥{fmt(c.peerAmount)}）
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p style={styles.chartNote}>※ 費目別シェアは総務省「家計調査」の単身世帯データを参考にした概算配分です。</p>
+              <p style={styles.chartNote}>※ 総務省「家計調査」の単身世帯データを参考にした、総支出の概算です。</p>
 
               <div style={styles.divider} />
 
