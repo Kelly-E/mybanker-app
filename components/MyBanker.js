@@ -1744,7 +1744,6 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
         </p>
         <div style={styles.paywallPriceRow}>
           <span style={styles.paywallPrice}>月額 ¥500</span>
-          <span style={styles.paywallNote}>友人を1人紹介すると、その月は無料</span>
         </div>
         {isAnonymousUser !== false && (
           <div style={styles.trialNoticeBox}>
@@ -1764,6 +1763,7 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
 
         {myReferralCode && (
           <div style={{ marginTop: 16 }}>
+            <p style={styles.paywallNote}>友人を1人紹介すると、その月は無料</p>
             <p style={styles.fieldLabel}>あなたの紹介リンク（友人がこのリンクから登録すると、あなたが1ヶ月無料に）</p>
             <div style={styles.fieldInputRow}>
               <input style={styles.input} value={referralUrl} readOnly />
