@@ -1,6 +1,6 @@
 export const metadata = {
   title: "MyBanker",
-  description: "たまる、ふえる、心地いい。あなた専用のマネープランナー。",
+  description: "資産形成を、もっと楽しく。自分の立ち位置がわかる資産管理サービス。",
 };
 
 export default function RootLayout({ children }) {
