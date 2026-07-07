@@ -1004,7 +1004,7 @@ export default function MyBanker() {
             totalHoldingsValue={holdings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
             otherAssets={otherAssets} updateOtherAsset={updateOtherAsset} updateOtherAssetLabel={updateOtherAssetLabel} updateOtherAssetRate={updateOtherAssetRate}
             addOtherAssetRow={addOtherAssetRow} removeOtherAsset={removeOtherAsset} otherAssetsTotal={otherAssetsTotal}
-            onNext={() => { if (assetLogs.length === 0) addAssetLog(); finishOnboarding(); }} onBack={() => setStep(2)} />
+            onNext={() => { if (holdingInput.name || holdingInput.amount) return; if (assetLogs.length === 0) addAssetLog(); finishOnboarding(); }} onBack={() => setStep(2)} />
         )}
       </div>
     </div>
@@ -1357,9 +1357,14 @@ function AssetBaseline({ assetInput, setAssetInput, holdings, holdingInput, setH
         totalHoldingsValue={totalHoldingsValue}
       />
 
+      {(holdingInput.name || holdingInput.amount) && (
+        <div style={styles.statusBanner2(false)}>
+          株式・投資信託の入力欄に未登録の内容があります。「登録する」を押してから次に進んでください(不要であれば入力欄を空にしてください)。
+        </div>
+      )}
       <div style={styles.btnRow}>
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
-        <button style={styles.primaryBtn} onClick={onNext}>メイン画面へ</button>
+        <button style={{ ...styles.primaryBtn, opacity: (holdingInput.name || holdingInput.amount) ? 0.4 : 1 }} onClick={onNext} disabled={!!(holdingInput.name || holdingInput.amount)}>メイン画面へ</button>
       </div>
     </div>
   );
@@ -1817,7 +1822,7 @@ function RankingPanel(props) {
 
   const shareGroups = [
     {
-      key: "age", label: "同年代との資産比較", premium: false,
+      key: "age", label: "同年代との比較", premium: false,
       items: [
         { key: "asset", label: "資産", text: () => `${medal(assetPercentile)}上位${assetPercentile}%${shareSel.showAmounts ? `（¥${fmt(totalNetWorth)}）` : ""}` },
         { key: "income", label: "年収", text: () => `${medal(incomePercentile)}上位${incomePercentile}%${shareSel.showAmounts ? `（¥${fmt(annualIncomeEstimateGross)}）` : ""}`, premium: true },
@@ -1826,7 +1831,7 @@ function RankingPanel(props) {
       ],
     },
     {
-      key: "income", label: "同収入との資産比較", premium: true,
+      key: "income", label: "同収入との比較", premium: true,
       items: [
         { key: "asset", label: "資産", text: () => `${medal(incomeBracketAssetPercentile)}上位${incomeBracketAssetPercentile}%${shareSel.showAmounts ? `（¥${fmt(totalNetWorth)}）` : ""}` },
         { key: "expense", label: "支出", text: () => `${incomeBracketExpenseDiffPct > 0 ? "+" : ""}${incomeBracketExpenseDiffPct}%` },
@@ -1834,7 +1839,7 @@ function RankingPanel(props) {
       ],
     },
     {
-      key: "prime", label: "東証プライム社員との資産比較", premium: true,
+      key: "prime", label: "東証プライム社員との比較", premium: true,
       items: [
         { key: "asset", label: "資産", text: () => `${medal(primeAssetPercentile)}上位${primeAssetPercentile}%${shareSel.showAmounts ? `（¥${fmt(totalNetWorth)}）` : ""}` },
         { key: "income", label: "年収", text: () => `${medal(primeIncomePercentile)}上位${primeIncomePercentile}%${shareSel.showAmounts ? `（¥${fmt(annualIncomeEstimateGross)}）` : ""}` },
@@ -2544,7 +2549,12 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
       />
 
       <div style={styles.divider} />
-      <button style={{ ...styles.primaryBtn, width: "100%" }} onClick={addAssetLog}>{todayLabel}の記録として保存する</button>
+      {(holdingInput.name || holdingInput.amount) && (
+        <div style={styles.statusBanner2(false)}>
+          株式・投資信託の入力欄に未登録の内容があります。「登録する」を押してから保存してください(不要であれば入力欄を空にしてください)。
+        </div>
+      )}
+      <button style={{ ...styles.primaryBtn, width: "100%", opacity: (holdingInput.name || holdingInput.amount) ? 0.4 : 1 }} onClick={addAssetLog} disabled={!!(holdingInput.name || holdingInput.amount)}>{todayLabel}の記録として保存する</button>
       <p style={styles.hint}>貯金、その他資産、株式・投資信託、すべての入力・編集が終わったら、このボタンを押してください。</p>
     </div>
   );
@@ -2685,7 +2695,7 @@ function ExpenseTrackPanel({ expenseLogInput, setExpenseLogInput, expenseLogItem
 function SettingsPanel(props) {
   const [section, setSection] = useState("income");
   const sections = [
-    { key: "income", label: "収入" }, { key: "expense", label: "支出" },
+    { key: "income", label: "収入" }, { key: "expense", label: "支出" }, { key: "notify", label: "通知" },
   ];
   const idx = sections.findIndex((s) => s.key === section);
   const goNext = () => setSection(sections[(idx + 1) % sections.length].key);
@@ -2699,6 +2709,64 @@ function SettingsPanel(props) {
       </div>
       {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} />}
       {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} />}
+      {section === "notify" && <NotifySettings />}
+    </div>
+  );
+}
+
+function NotifySettings() {
+  const [emailReminder, setEmailReminder] = useState(false);
+  const [reminderEmail, setReminderEmail] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    getCurrentUser().then(async (u) => {
+      if (!u) return;
+      setUserId(u.id);
+      setReminderEmail(u.email || "");
+      const { data } = await fetch("/api/update-reminder-setting").catch(() => ({ data: null }));
+      // SupabaseからSETTINGを読み込む
+      const supabase = (await import("../lib/supabaseClient")).supabase;
+      const { data: profile } = await supabase.from("user_profiles").select("email_reminder, reminder_email").eq("user_id", u.id).maybeSingle();
+      if (profile) {
+        setEmailReminder(!!profile.email_reminder);
+        setReminderEmail(profile.reminder_email || u.email || "");
+      }
+      setLoaded(true);
+    });
+  }, []);
+
+  const handleSave = async () => {
+    if (!userId) return;
+    setMsg("");
+    const res = await fetch("/api/update-reminder-setting", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, emailReminder, reminderEmail }),
+    });
+    const d = await res.json();
+    setMsg(d.success ? "保存しました。" : "エラーが発生しました。");
+  };
+
+  if (!loaded) return <p style={styles.hint}>読み込み中...</p>;
+
+  return (
+    <div>
+      <p style={styles.sectionTitle}>月初めリマインド</p>
+      <p style={styles.hint}>毎月1日に「資産を記録しましょう」というメールを受け取れます。</p>
+      <label style={styles.shareCheckboxRow}>
+        <input type="checkbox" checked={emailReminder} onChange={(e) => setEmailReminder(e.target.checked)} />
+        <span>月初めに資産記録のリマインドメールを受け取る</span>
+      </label>
+      {emailReminder && (
+        <div style={{ marginTop: 12 }}>
+          <Field label="送信先メールアドレス" value={reminderEmail} onChange={(e) => setReminderEmail(e.target.value)} type="text" />
+        </div>
+      )}
+      <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={handleSave}>保存する</button>
+      {msg && <p style={styles.hint}>{msg}</p>}
     </div>
   );
 }
@@ -3126,6 +3194,7 @@ const styles = {
   bonusBlock: { marginTop: 28, padding: "18px", border: "1px solid #E3E9E4", borderRadius: 12, background: "#FBF8F0" },
   chartCard: { marginTop: 24, padding: "18px 18px 6px", border: "1px solid #E3E9E4", borderRadius: 12 },
   chartTitle: { fontSize: 13, color: "#1F2630", fontWeight: 600, marginBottom: 6 },
+  sectionTitle: { fontSize: 15, color: "#1F2630", fontWeight: 600, marginBottom: 8 },
   chartTitleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 },
   planBtn: { background: "#1F2630", color: "#fff", border: "none", borderRadius: 20, padding: "8px 14px", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" },
   chartNote: { fontSize: 10.5, color: "#9AA6A0", marginTop: 4 },
