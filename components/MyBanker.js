@@ -1292,11 +1292,11 @@ function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabe
   );
 }
 
-function HoldingsEditor({ holdings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue }) {
+function HoldingsEditor({ holdings, setHoldings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue }) {
   const [suggestId, setSuggestId] = useState(null);
   const pickPresetForRow = (id, p) => {
-    updateHoldingField(id, "name")({ target: { value: p.name } });
-    updateHoldingField(id, "rate")({ target: { value: String(p.rate) } });
+    // 名前と年率を同時に1回のstate更新で反映(別々に呼ぶと古いstateを参照して上書きされてしまうため)
+    setHoldings((prev) => prev.map((h) => h.id === id ? { ...h, name: p.name, rate: String(p.rate) } : h));
     setSuggestId(null);
   };
   return (
@@ -1372,7 +1372,7 @@ function AssetBaseline({ assetInput, setAssetInput, holdings, addHoldingRow, upd
       <div style={styles.divider} />
       <p style={styles.chartTitle}>株式・投資信託（個別に登録します）</p>
       <HoldingsEditor
-        holdings={holdings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
+        holdings={holdings} setHoldings={setHoldings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
         removeHoldingRow={removeHoldingRow} totalHoldingsValue={totalHoldingsValue}
       />
 
@@ -1731,13 +1731,13 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
   return (
     <div>
       <div style={styles.paywallCard}>
-        <p style={styles.paywallTitle}>ここから先はプレミアム会員限定です</p>
+        <p style={styles.paywallTitle}>ここから先はプレミアム会員限定</p>
         <p style={styles.paywallDesc}>
           同年代の人との貯蓄・年収・支出の比較や分布グラフの表示、資産が増えているペースのランキングなど、より詳しく「自分の立ち位置」がわかります。
         </p>
 
         <div style={{ marginTop: 12, marginBottom: 16, padding: "12px", background: "#F7F5EF", borderRadius: 10 }}>
-          <p style={{ ...styles.chartTitle, marginBottom: 8 }}>表示イメージ（全員共通のサンプルです）</p>
+          <p style={{ ...styles.chartTitle, marginBottom: 8 }}>表示イメージ（サンプルグラフ）</p>
           <div style={styles.percentileRow}>
             <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {SAMPLE_INCOME_PERCENTILE}%</div>
             <div style={styles.percentileNote}>例：年収の同年代での位置イメージ</div>
@@ -1757,13 +1757,13 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
           <p style={styles.chartNote}>※ 実際のあなたのデータではなく、画面イメージ用のサンプルです。</p>
         </div>
 
-        <div style={styles.paywallPriceRow}>
+        <div style={{ ...styles.paywallPriceRow, marginBottom: 8 }}>
           <span style={styles.paywallPrice}>月額 ¥500</span>
         </div>
         {incomingReferralCode && (
           <p style={styles.hint}>紹介コード「{incomingReferralCode}」を適用して登録します。</p>
         )}
-        <div style={styles.paywallBtnRow}>
+        <div style={{ ...styles.paywallBtnRow, marginBottom: 0 }}>
           <button style={styles.primaryBtn} onClick={handleCheckout} disabled={loading}>
             {loading ? "決済ページへ移動中..." : "登録する（¥500/月）"}
           </button>
@@ -1771,7 +1771,7 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
         {errorMsg && <p style={styles.warnText}>{errorMsg}</p>}
 
         {isAnonymousUser !== false && (
-          <div style={styles.trialNoticeBox}>
+          <div style={{ ...styles.trialNoticeBox, marginTop: 20 }}>
             <span>会員登録（無料）するだけで、30日間すべて無料で閲覧できます。</span>
             {setDashView && <button style={styles.smallLinkBtn} onClick={() => setDashView("account")}>会員登録はこちら →</button>}
           </div>
@@ -2537,7 +2537,7 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
       <div style={styles.divider} />
       <p style={styles.chartTitle}>株式・投資信託（個別の保有資産を登録）</p>
       <HoldingsEditor
-        holdings={holdings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
+        holdings={holdings} setHoldings={setHoldings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
         removeHoldingRow={removeHoldingRow} totalHoldingsValue={totalHoldingsValue}
       />
 
@@ -3219,7 +3219,7 @@ const styles = {
   paywallCard: { background: "#FBF8F0", border: "1px solid #E3DAC2", borderRadius: 14, padding: "20px", marginTop: 8 },
   paywallTitle: { fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 700, color: "#5C4F2A", marginBottom: 8 },
   paywallDesc: { fontSize: 12.5, color: "#6B6248", lineHeight: 1.7, marginBottom: 14 },
-  paywallPriceRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 },
+  paywallPriceRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 },
   paywallPrice: { fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700, color: "#B5582E" },
   paywallNote: { fontSize: 11.5, color: "#6B6248" },
   paywallBtnRow: { display: "flex", gap: 10, flexWrap: "wrap" },
