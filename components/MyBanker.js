@@ -1068,7 +1068,7 @@ function NumInput({ value, onChange, placeholder }) {
   return <input style={styles.input} value={display} onChange={handleChange} inputMode="numeric" placeholder={placeholder} />;
 }
 
-function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome }) {
+function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome, saveLabel }) {
   const bonusAnnualVal = Number(form.bonusAnnual) || 0;
   return (
     <div style={styles.card}>
@@ -1162,13 +1162,13 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
 
       <div style={styles.btnRow}>
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
-        <button style={styles.primaryBtn} onClick={onNext}>次へ</button>
+        <button style={styles.primaryBtn} onClick={onNext}>{saveLabel || "次へ"}</button>
       </div>
     </div>
   );
 }
 
-function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, form, update, totalExpense, insuranceRatio, onNext, onBack }) {
+function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, form, update, totalExpense, insuranceRatio, onNext, onBack, saveLabel }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 2 — 支出</p>
@@ -1200,7 +1200,7 @@ function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpe
       )}
       <div style={styles.btnRow}>
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
-        <button style={styles.primaryBtn} onClick={onNext}>次へ</button>
+        <button style={styles.primaryBtn} onClick={onNext}>{saveLabel || "次へ"}</button>
       </div>
     </div>
   );
@@ -1223,7 +1223,7 @@ function RiskStep({ riskProfile, setRiskProfile, onNext, onBack }) {
       </div>
       <div style={styles.btnRow}>
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
-        <button style={styles.primaryBtn} onClick={onNext}>次へ</button>
+        <button style={styles.primaryBtn} onClick={onNext}>{saveLabel || "次へ"}</button>
       </div>
     </div>
   );
@@ -1290,33 +1290,15 @@ function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabe
 }
 
 function HoldingsEditor({ holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue }) {
+  const [showForm, setShowForm] = useState(false);
   const filtered = HOLDING_PRESETS.filter((p) => holdingInput.name && p.name.toLowerCase().includes(holdingInput.name.toLowerCase()));
   return (
     <div>
       <div style={styles.totalLineTop}>株式・投資信託の合計：<span style={styles.totalValue}>¥{fmt(totalHoldingsValue)}</span></div>
-      <p style={styles.hint}>投資信託名や暗号資産名を入力すると、候補と想定年率が表示されます。候補にないものは、名前と想定年率を自分で入力できます。</p>
-      <div style={{ position: "relative" }}>
-        <div style={{ position: "relative", marginBottom: 12 }}>
-          <Field label="商品名" value={holdingInput.name} onChange={(e) => { setHoldingInput({ ...holdingInput, name: e.target.value }); setShowSuggest(true); }} hint="例：eMAXIS Slim 全世界株式" type="text" />
-          {showSuggest && filtered.length > 0 && (
-            <div style={styles.suggestBox}>
-              {filtered.map((p) => (
-                <div key={p.name} style={styles.suggestItem} onClick={() => pickPreset(p)}>
-                  <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={styles.grid2}>
-          <Field label="保有額" value={holdingInput.amount} onChange={(e) => setHoldingInput({ ...holdingInput, amount: e.target.value })} suffix="円" />
-          <Field label="想定年率" value={holdingInput.rate} onChange={(e) => setHoldingInput({ ...holdingInput, rate: e.target.value })} suffix="%" hint="候補選択で自動入力、手動でも変更可" />
-        </div>
-      </div>
-      <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={addHolding}>登録する</button>
+      <p style={styles.hint}>投資信託・株式・ETFなどを銘柄ごとに登録できます。候補から選ぶと想定年率が自動入力されます。</p>
 
       {holdings.length > 0 && (
-        <div style={{ ...styles.ledger, marginTop: 18 }}>
+        <div style={{ ...styles.ledger, marginBottom: 12 }}>
           {holdings.map((h) => (
             <div key={h.id} style={styles.ledgerRow}>
               <div><div style={styles.ledgerLabel}>{h.name}</div><div style={styles.ledgerNote}>想定年率 {h.rate}%</div></div>
@@ -1326,6 +1308,33 @@ function HoldingsEditor({ holdings, holdingInput, setHoldingInput, addHolding, r
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {!showForm ? (
+        <button style={styles.addRowBtn} onClick={() => setShowForm(true)}>+ 銘柄を追加する</button>
+      ) : (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ position: "relative", marginBottom: 12 }}>
+            <Field label="商品名" value={holdingInput.name} onChange={(e) => { setHoldingInput({ ...holdingInput, name: e.target.value }); setShowSuggest(true); }} hint="例：eMAXIS Slim 全世界株式" type="text" />
+            {showSuggest && filtered.length > 0 && (
+              <div style={styles.suggestBox}>
+                {filtered.map((p) => (
+                  <div key={p.name} style={styles.suggestItem} onClick={() => pickPreset(p)}>
+                    <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={styles.grid2}>
+            <Field label="保有額" value={holdingInput.amount} onChange={(e) => setHoldingInput({ ...holdingInput, amount: e.target.value })} suffix="円" />
+            <Field label="想定年率" value={holdingInput.rate} onChange={(e) => setHoldingInput({ ...holdingInput, rate: e.target.value })} suffix="%" hint="候補選択で自動入力、手動でも変更可" />
+          </div>
+          <div style={styles.btnRow}>
+            <button style={styles.primaryBtn} onClick={() => { addHolding(); setShowForm(false); }}>追加する</button>
+            <button style={styles.ghostBtn} onClick={() => { setHoldingInput({ name: "", amount: "", rate: "" }); setShowForm(false); }}>閉じる</button>
+          </div>
         </div>
       )}
     </div>
@@ -1440,7 +1449,7 @@ function Dashboard(props) {
                 <p style={styles.warnText}>配分の合計が100%になっていません。エラー表示の箇所を直してから次に進んでください。</p>
               )}
               <div style={{ ...styles.btnRow, marginTop: 18 }}>
-                <button style={styles.ghostBtn} onClick={() => setPlanningFlow("risk")}>運用方針を直す</button>
+                <button style={styles.ghostBtn} onClick={() => setPlanningFlow(null)}>メイン画面に戻る</button>
                 <button style={styles.primaryBtn} onClick={() => setPlanningFlow("goal")} disabled={allocOver || allocUnder || nisaSplitOver || otherSplitOver}>次へ（目標金額を設定）</button>
               </div>
             </div>
@@ -1522,16 +1531,12 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
 
       <div style={styles.summaryRow}>
         <div style={styles.summaryItemLg} onClick={() => toggle("total")}>
-          <span style={styles.summaryLabel}>総資産（推定）　<span style={styles.tapHint}>タップで内訳</span></span>
+          <span style={styles.summaryLabel}>総資産　<span style={styles.tapHint}>タップで内訳</span></span>
           <span style={styles.summaryValueLg}>¥{fmt(totalNetWorth)}</span>
         </div>
         <div style={styles.summaryItem} onClick={() => toggle("free")}>
           <span style={styles.summaryLabel}>毎月の自由資金　<span style={styles.tapHint}>タップで根拠</span></span>
           <span style={styles.summaryValue}>¥{fmt(monthlyFree)}</span>
-        </div>
-        <div style={styles.summaryItem} onClick={() => toggle("holdings")}>
-          <span style={styles.summaryLabel}>個別保有資産の合計　<span style={styles.tapHint}>タップで詳細</span></span>
-          <span style={styles.summaryValue}>¥{fmt(totalHoldingsValue)}</span>
         </div>
       </div>
 
@@ -1584,7 +1589,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
 
       <div style={styles.chartCard}>
         <div style={styles.chartTitleRow}>
-          <p style={styles.chartTitle}>資産の推移予想（{RISK_PROFILES[riskProfile].label}）</p>
+          <p style={styles.chartTitle}>資産の推移予想</p>
           <button style={styles.planBtn} onClick={() => setPlanningFlow(allocTouched ? "simulator" : "risk")}>{allocTouched ? "積立プラン・目標金額を編集/確認する" : "積立プランを決めて将来の資産推移を見る"}</button>
         </div>
         <div style={styles.rangeToggleRow}>
@@ -1720,42 +1725,36 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
 
   return (
     <div>
-      <div style={{ marginTop: 8 }}>
-        <p style={styles.chartTitle}>サンプル画面（参考用・全員共通の例です）</p>
-        <div style={styles.percentileRow}>
-          <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {SAMPLE_INCOME_PERCENTILE}%</div>
-          <div style={styles.percentileNote}>例：年収の同年代での位置イメージ</div>
-        </div>
-        <TouchDismissChart><ResponsiveContainer width="100%" height={140}>
-          <BarChart data={SAMPLE_INCOME_DISTRIBUTION} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
-            <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
-            <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-              {SAMPLE_INCOME_DISTRIBUTION.map((entry, i) => (
-                <Cell key={i} fill={i === sampleHighlightIdx ? "#B5582E" : "#C7CDD6"} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer></TouchDismissChart>
-        <p style={styles.youAreHereNote}>● オレンジ＝サンプル上の「あなたの位置」イメージ</p>
-        <p style={styles.chartNote}>※ 実際のあなたのデータではなく、画面イメージをつかむためのサンプルです。</p>
-      </div>
-
       <div style={styles.paywallCard}>
         <p style={styles.paywallTitle}>ここから先はプレミアム会員限定です</p>
         <p style={styles.paywallDesc}>
           同年代の人との貯蓄・年収・支出の比較や分布グラフの表示、資産が増えているペースのランキングなど、より詳しく「自分の立ち位置」がわかります。
         </p>
+
+        <div style={{ marginTop: 12, marginBottom: 16, padding: "12px", background: "#F7F5EF", borderRadius: 10 }}>
+          <p style={{ ...styles.chartTitle, marginBottom: 8 }}>表示イメージ（全員共通のサンプルです）</p>
+          <div style={styles.percentileRow}>
+            <div style={{ ...styles.percentileBig, fontSize: 22 }}>上位 {SAMPLE_INCOME_PERCENTILE}%</div>
+            <div style={styles.percentileNote}>例：年収の同年代での位置イメージ</div>
+          </div>
+          <TouchDismissChart><ResponsiveContainer width="100%" height={130}>
+            <BarChart data={SAMPLE_INCOME_DISTRIBUTION} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+              <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                {SAMPLE_INCOME_DISTRIBUTION.map((entry, i) => (
+                  <Cell key={i} fill={i === sampleHighlightIdx ? "#B5582E" : "#C7CDD6"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer></TouchDismissChart>
+          <p style={styles.chartNote}>※ 実際のあなたのデータではなく、画面イメージ用のサンプルです。</p>
+        </div>
+
         <div style={styles.paywallPriceRow}>
           <span style={styles.paywallPrice}>月額 ¥500</span>
         </div>
-        {isAnonymousUser !== false && (
-          <div style={styles.trialNoticeBox}>
-            <span>会員登録（無料）するだけで、30日間すべて無料で閲覧できます。</span>
-            {setDashView && <button style={styles.smallLinkBtn} onClick={() => setDashView("account")}>会員登録はこちら →</button>}
-          </div>
-        )}
         {incomingReferralCode && (
           <p style={styles.hint}>紹介コード「{incomingReferralCode}」を適用して登録します。</p>
         )}
@@ -1765,6 +1764,13 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
           </button>
         </div>
         {errorMsg && <p style={styles.warnText}>{errorMsg}</p>}
+
+        {isAnonymousUser !== false && (
+          <div style={styles.trialNoticeBox}>
+            <span>会員登録（無料）するだけで、30日間すべて無料で閲覧できます。</span>
+            {setDashView && <button style={styles.smallLinkBtn} onClick={() => setDashView("account")}>会員登録はこちら →</button>}
+          </div>
+        )}
 
         {myReferralCode && (
           <div style={{ marginTop: 16 }}>
@@ -2414,6 +2420,8 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
+  const handleSave = () => { addAssetLog(); setSaveToast(true); setTimeout(() => setSaveToast(false), 2000); };
   const todayLabel = new Date().toLocaleDateString("ja-JP");
   const sortedLogs = [...assetLogs].sort((a, b) => b.id - a.id);
   return (
@@ -2554,7 +2562,8 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
           株式・投資信託の入力欄に未登録の内容があります。「登録する」を押してから保存してください(不要であれば入力欄を空にしてください)。
         </div>
       )}
-      <button style={{ ...styles.primaryBtn, width: "100%", opacity: (holdingInput.name || holdingInput.amount) ? 0.4 : 1 }} onClick={addAssetLog} disabled={!!(holdingInput.name || holdingInput.amount)}>{todayLabel}の記録として保存する</button>
+      {saveToast && <div style={styles.toastBanner}>保存しました ✓</div>}
+      <button style={{ ...styles.primaryBtn, width: "100%", opacity: (holdingInput.name || holdingInput.amount) ? 0.4 : 1 }} onClick={handleSave} disabled={!!(holdingInput.name || holdingInput.amount)}>{todayLabel}の記録として保存する</button>
       <p style={styles.hint}>貯金、その他資産、株式・投資信託、すべての入力・編集が終わったら、このボタンを押してください。</p>
     </div>
   );
@@ -2694,21 +2703,24 @@ function ExpenseTrackPanel({ expenseLogInput, setExpenseLogInput, expenseLogItem
 
 function SettingsPanel(props) {
   const [section, setSection] = useState("income");
+  const [toast, setToast] = useState(false);
   const sections = [
     { key: "income", label: "収入" }, { key: "expense", label: "支出" }, { key: "notify", label: "通知" },
   ];
+  const showToast = () => { setToast(true); setTimeout(() => setToast(false), 2000); };
   const idx = sections.findIndex((s) => s.key === section);
-  const goNext = () => setSection(sections[(idx + 1) % sections.length].key);
+  const goNext = () => { showToast(); };
   const goBack = () => setSection(sections[(idx - 1 + sections.length) % sections.length].key);
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>設定</p>
       <h2 style={styles.h2}>初期設定を編集</h2>
+      {toast && <div style={styles.toastBanner}>保存しました ✓</div>}
       <div style={styles.toggleRow}>
         {sections.map((s) => <button key={s.key} style={section === s.key ? styles.toggleActive : styles.toggleInactive} onClick={() => setSection(s.key)}>{s.label}</button>)}
       </div>
-      {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} />}
-      {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} />}
+      {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} saveLabel="保存する" />}
+      {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} saveLabel="保存する" />}
       {section === "notify" && <NotifySettings />}
     </div>
   );
@@ -3210,6 +3222,7 @@ const styles = {
   suggestRate: { color: "#9AA6A0", fontFamily: "'JetBrains Mono', monospace", fontSize: 11 },
   navBar: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#FBFAF6", borderTop: "1px solid #D8E2DA", display: "flex", justifyContent: "center", gap: 6, padding: "10px 12px", flexWrap: "wrap", zIndex: 20 },
   signupBar: { position: "fixed", bottom: 54, left: 0, right: 0, background: "#1F2630", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "8px 14px", fontSize: 11.5, flexWrap: "wrap", zIndex: 19 },
+  toastBanner: { background: "#2F6B4F", color: "#fff", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", marginBottom: 12 },
   signupBarBtn: { background: "#fff", color: "#1F2630", border: "none", borderRadius: 14, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 },
   navItem: { background: "transparent", border: "none", color: "#5C6862", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
   navItemActive: { background: "#1F2630", border: "none", color: "#fff", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
