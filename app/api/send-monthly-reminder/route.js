@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
-// Vercel Cronから月1回呼ばれる。通知オン（email_reminder = true）のユーザーにメールを送る。
-// セキュリティのため、CRON_SECRETによる認証を行う。
+// Next.jsのビルド時静的解析を無効化（実行時にのみ動作させる）
+export const dynamic = "force-dynamic";
+
 export async function GET(req) {
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Resendの初期化をここで行う（ビルド時ではなく実行時にAPIキーを参照する）
+  // Resendをここで動的にimportして初期化（ビルド時の実行を避ける）
+  const { Resend } = await import("resend");
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   const { data: profiles, error } = await supabaseAdmin
