@@ -1170,7 +1170,9 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
       {showToast && <div style={styles.toastBanner}>保存しました ✓</div>}
     </div>
   );
-}({ detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, form, update, totalExpense, insuranceRatio, onNext, onBack, saveLabel, showToast }) {
+}
+
+function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, form, update, totalExpense, insuranceRatio, onNext, onBack, saveLabel, showToast }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 2 — 支出</p>
