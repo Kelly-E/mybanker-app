@@ -997,7 +997,8 @@ export default function MyBanker() {
     <div style={styles.page}>
       <div style={styles.shell}>
         <Header step={step} setStep={setStep} />
-        {step === 0 && <Intro onNext={() => setStep(1)} onLogin={() => { setAppPhase("dashboard"); setDashView("account"); }} />}
+        {step === 0 && <Intro onNext={() => setStep(1)} onLogin={() => setStep(-1)} />}
+        {step === -1 && <LoginOnly onDone={() => window.location.reload()} onBack={() => setStep(0)} />}
         {step === 1 && <IncomeStep {...sharedProps} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
         {step === 2 && <ExpenseStep {...sharedProps} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
         {step === 3 && (
@@ -1034,6 +1035,75 @@ function Intro({ onNext, onLogin }) {
       <p style={styles.lead}>貯金や投資、NISAなどの資産をまとめて管理。同年代・同年収の中での自分の立ち位置を確認しながら、自分の成長を実感できます。資産が増えるたび、ランキングも上がる。資産形成を楽しく続けましょう。</p>
       <button style={styles.primaryBtn} onClick={onNext}>はじめる</button>
       <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 14 }} onClick={onLogin}>すでにアカウントをお持ちの方はこちら（ログイン）</button>
+    </div>
+  );
+}
+
+function LoginOnly({ onDone, onBack }) {
+  const [mode, setMode] = useState("login"); // login | forgot
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    try {
+      await signInWithEmail(email, password);
+      onDone();
+    } catch (err) {
+      setMessage("メールアドレスまたはパスワードが正しくありません。");
+    }
+  };
+
+  const handleForgot = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    try {
+      await requestPasswordReset(email);
+      setMessage("パスワード再設定メールを送りました。メール内のリンクを開いてください。");
+    } catch (err) {
+      setMessage("エラーが発生しました。メールアドレスを確認してください。");
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <p style={styles.eyebrow}>ログイン</p>
+      <h2 style={styles.h2}>{mode === "login" ? "アカウントにログイン" : "パスワードを再設定"}</h2>
+
+      {mode === "login" ? (
+        <form onSubmit={handleLogin}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <label style={styles.field}>
+              <span style={styles.fieldLabel}>メールアドレス</span>
+              <div style={styles.fieldInputRow}><input style={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="example@email.com" /></div>
+            </label>
+            <label style={styles.field}>
+              <span style={styles.fieldLabel}>パスワード</span>
+              <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+            </label>
+          </div>
+          {message && <p style={styles.warnText}>{message}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
+            <button style={styles.primaryBtn} type="submit">ログインする</button>
+            <button style={styles.ghostBtn} type="button" onClick={onBack}>戻る</button>
+            <button style={styles.smallLinkBtn} type="button" onClick={() => { setMode("forgot"); setMessage(""); }}>パスワードをお忘れですか？</button>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={handleForgot}>
+          <label style={styles.field}>
+            <span style={styles.fieldLabel}>登録したメールアドレス</span>
+            <div style={styles.fieldInputRow}><input style={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+          </label>
+          {message && <p style={styles.hint}>{message}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
+            <button style={styles.primaryBtn} type="submit">再設定メールを送る</button>
+            <button style={styles.ghostBtn} type="button" onClick={() => { setMode("login"); setMessage(""); }}>ログインに戻る</button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
@@ -3093,7 +3163,7 @@ const styles = {
   grid3: { display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 14, marginBottom: 8 },
   field: { display: "flex", flexDirection: "column", gap: 6 },
   fieldLabel: { fontSize: 12, color: "#5C6862" },
-  fieldInputRow: { display: "flex", alignItems: "center", border: "1px solid #D8E2DA", borderRadius: 8, padding: "10px 12px", background: "#fff", minHeight: 44 },
+  fieldInputRow: { display: "flex", alignItems: "center", border: "1px solid #D8E2DA", borderRadius: 8, padding: "10px 12px", background: "#fff" },
   readOnlyValueRow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 15, color: "#5C6862", border: "1px solid #E3E9E4", borderRadius: 8, padding: "8px 12px", background: "#F1F4F1" },
   historyRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #EDF1EE", cursor: "pointer" },
   historyDetail: { padding: "14px 16px 18px", borderBottom: "1px solid #EDF1EE", background: "#FAFAF7" },
