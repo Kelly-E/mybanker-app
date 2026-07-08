@@ -1071,7 +1071,7 @@ function NumInput({ value, onChange, placeholder }) {
   return <input style={styles.input} value={display} onChange={handleChange} inputMode="numeric" placeholder={placeholder} />;
 }
 
-function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome, saveLabel }) {
+function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome, saveLabel, showToast }) {
   const bonusAnnualVal = Number(form.bonusAnnual) || 0;
   return (
     <div style={styles.card}>
@@ -1167,11 +1167,10 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
         <button style={styles.primaryBtn} onClick={onNext}>{saveLabel || "次へ"}</button>
       </div>
+      {showToast && <div style={styles.toastBanner}>保存しました ✓</div>}
     </div>
   );
-}
-
-function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, form, update, totalExpense, insuranceRatio, onNext, onBack, saveLabel }) {
+}({ detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, form, update, totalExpense, insuranceRatio, onNext, onBack, saveLabel, showToast }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 2 — 支出</p>
@@ -1205,11 +1204,10 @@ function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpe
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
         <button style={styles.primaryBtn} onClick={onNext}>{saveLabel || "次へ"}</button>
       </div>
+      {showToast && <div style={styles.toastBanner}>保存しました ✓</div>}
     </div>
   );
-}
-
-function RiskStep({ riskProfile, setRiskProfile, onNext, onBack }) {
+}({ riskProfile, setRiskProfile, onNext, onBack }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 3 — 運用方針</p>
@@ -2695,12 +2693,11 @@ function SettingsPanel(props) {
     <div style={styles.card}>
       <p style={styles.eyebrow}>設定</p>
       <h2 style={styles.h2}>初期設定を編集</h2>
-      {toast && <div style={styles.toastBanner}>保存しました ✓</div>}
       <div style={styles.toggleRow}>
         {sections.map((s) => <button key={s.key} style={section === s.key ? styles.toggleActive : styles.toggleInactive} onClick={() => setSection(s.key)}>{s.label}</button>)}
       </div>
-      {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} saveLabel="保存する" />}
-      {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} saveLabel="保存する" />}
+      {section === "income" && <IncomeStep {...props} onNext={goNext} onBack={goBack} saveLabel="保存する" showToast={toast} />}
+      {section === "expense" && <ExpenseStep {...props} onNext={goNext} onBack={goBack} saveLabel="保存する" showToast={toast} />}
       {section === "notify" && <NotifySettings />}
     </div>
   );
@@ -2758,7 +2755,7 @@ function NotifySettings() {
         </div>
       )}
       <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={handleSave}>保存する</button>
-      {msg && <p style={styles.hint}>{msg}</p>}
+      {msg && <div style={styles.toastBanner}>{msg}</div>}
     </div>
   );
 }
@@ -2974,7 +2971,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
       <form onSubmit={handleEmailSubmit}>
         <Field label="メールアドレス" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} type="text" />
         <button style={{ ...styles.primaryBtn, marginTop: 10 }} type="submit">メールアドレスを変更する</button>
-        {emailMsg && <p style={styles.hint}>{emailMsg}</p>}
+        {emailMsg && <div style={styles.toastBanner}>{emailMsg}</div>}
       </form>
 
       <div style={styles.divider} />
@@ -2991,7 +2988,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
           </label>
         </div>
         <button style={{ ...styles.primaryBtn, marginTop: 10 }} type="submit">パスワードを変更する</button>
-        {pwMsg && <p style={styles.hint}>{pwMsg}</p>}
+        {pwMsg && <div style={styles.toastBanner}>{pwMsg}</div>}
       </form>
 
       <div style={styles.divider} />
@@ -3071,33 +3068,33 @@ function ContactPanel() {
 }
 
 const styles = {
-  page: { minHeight: "100vh", background: "#EAF2EC", display: "flex", justifyContent: "center", padding: "40px 16px 100px", fontFamily: "'Source Sans 3', 'Hiragino Sans', sans-serif" },
+  page: { minHeight: "100vh", background: "#EAF2EC", display: "flex", justifyContent: "center", padding: "16px 12px 110px", fontFamily: "'Source Sans 3', 'Hiragino Sans', sans-serif" },
   shell: { width: "100%", maxWidth: 700, position: "relative" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 10 },
   brand: { fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 600, color: "#1F2630", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" },
   brandMark: { color: "#B5582E" },
   stepRow: { display: "flex", gap: 9, flexWrap: "wrap" },
   stepLabel: { fontSize: 10.2, color: "#1F2630" },
-  card: { background: "#FBFAF6", border: "1px solid #D8E2DA", borderRadius: 18, padding: "32px 30px", boxShadow: "0 1px 0 rgba(31,38,48,0.04)" },
+  card: { background: "#FBFAF6", border: "1px solid #D8E2DA", borderRadius: 18, padding: "24px 18px", boxShadow: "0 1px 0 rgba(31,38,48,0.04)" },
   eyebrow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: "0.08em", color: "#B5582E", marginBottom: 10, textTransform: "uppercase" },
   h1: { fontFamily: "'Fraunces', serif", fontSize: 22, lineHeight: 1.4, color: "#1F2630", margin: "0 0 16px", fontWeight: 600 },
   h2: { fontFamily: "'Fraunces', serif", fontSize: 20, color: "#1F2630", margin: "0 0 14px", fontWeight: 600 },
   lead: { fontSize: 14.5, lineHeight: 1.8, color: "#3D4A45", marginBottom: 22 },
   calcNote: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, color: "#7A6F4E", background: "#F1F0E8", padding: "8px 12px", borderRadius: 8, marginBottom: 20, display: "inline-block" },
-  primaryBtn: { background: "#1F2630", color: "#FBFAF6", border: "none", borderRadius: 10, padding: "12px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
-  ghostBtn: { background: "transparent", color: "#1F2630", border: "1px solid #D8E2DA", borderRadius: 10, padding: "12px 22px", fontSize: 14, cursor: "pointer" },
+  primaryBtn: { background: "#1F2630", color: "#FBFAF6", border: "none", borderRadius: 10, padding: "14px 22px", fontSize: 15, fontWeight: 600, cursor: "pointer", minHeight: 44 },
+  ghostBtn: { background: "transparent", color: "#1F2630", border: "1px solid #D8E2DA", borderRadius: 10, padding: "14px 22px", fontSize: 15, cursor: "pointer", minHeight: 44 },
   warnBtn: { background: "#9A4A1F", color: "#fff", border: "none", borderRadius: 10, padding: "12px 22px", fontSize: 14, cursor: "pointer" },
   btnRow: { display: "flex", justifyContent: "space-between", marginTop: 26 },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 8 },
   grid3: { display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 14, marginBottom: 8 },
   field: { display: "flex", flexDirection: "column", gap: 6 },
   fieldLabel: { fontSize: 12, color: "#5C6862" },
-  fieldInputRow: { display: "flex", alignItems: "center", border: "1px solid #D8E2DA", borderRadius: 8, padding: "8px 12px", background: "#fff" },
+  fieldInputRow: { display: "flex", alignItems: "center", border: "1px solid #D8E2DA", borderRadius: 8, padding: "10px 12px", background: "#fff", minHeight: 44 },
   readOnlyValueRow: { fontFamily: "'JetBrains Mono', monospace", fontSize: 15, color: "#5C6862", border: "1px solid #E3E9E4", borderRadius: 8, padding: "8px 12px", background: "#F1F4F1" },
   historyRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #EDF1EE", cursor: "pointer" },
   historyDetail: { padding: "14px 16px 18px", borderBottom: "1px solid #EDF1EE", background: "#FAFAF7" },
   deleteLogBtn: { marginTop: 12, background: "transparent", border: "1px solid #E3B5A8", color: "#9A1F1F", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, cursor: "pointer" },
-  input: { border: "none", outline: "none", fontSize: 15, fontFamily: "'JetBrains Mono', monospace", width: "100%", background: "transparent", color: "#1F2630" },
+  input: { border: "none", outline: "none", fontSize: 16, fontFamily: "'JetBrains Mono', monospace", width: "100%", background: "transparent", color: "#1F2630" },
   textarea: { border: "1px solid #D8E2DA", borderRadius: 10, padding: "10px 12px", fontSize: 14, fontFamily: "'Source Sans 3', sans-serif", width: "100%", resize: "vertical" },
   suffix: { fontSize: 12, color: "#9AA6A0" },
   hint: { fontSize: 11, color: "#9AA6A0" },
@@ -3132,7 +3129,7 @@ const styles = {
   otherAssetCard: { border: "1px solid #E3E9E4", borderRadius: 10, padding: "12px" },
   otherAssetCardTop: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 },
   otherAssetLabelInput: { flex: 1, fontSize: 14, color: "#1F2630", border: "1px solid #D8E2DA", borderRadius: 8, padding: "8px 10px", outline: "none" },
-  otherAssetCardRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
+  otherAssetCardRow: { display: "flex", flexWrap: "wrap", gap: 10 },
   otherAssetFieldWrap: { display: "flex", flexDirection: "column", gap: 4 },
   expenseLabel: { fontSize: 13.5, color: "#1F2630" },
   expenseLabelInput: { fontSize: 13.5, color: "#1F2630", border: "1px solid #D8E2DA", borderRadius: 8, padding: "8px 10px", outline: "none" },
@@ -3200,12 +3197,12 @@ const styles = {
   suggestBox: { position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #D8E2DA", borderRadius: 10, marginTop: 4, zIndex: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", maxHeight: 220, overflowY: "auto" },
   suggestItem: { display: "flex", justifyContent: "space-between", padding: "10px 14px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid #F1F4F1", color: "#1F2630" },
   suggestRate: { color: "#9AA6A0", fontFamily: "'JetBrains Mono', monospace", fontSize: 11 },
-  navBar: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#FBFAF6", borderTop: "1px solid #D8E2DA", display: "flex", justifyContent: "center", gap: 6, padding: "10px 12px", flexWrap: "wrap", zIndex: 20 },
+  navBar: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#FBFAF6", borderTop: "1px solid #D8E2DA", display: "flex", justifyContent: "center", gap: 6, padding: "10px 12px env(safe-area-inset-bottom)", flexWrap: "wrap", zIndex: 20 },
   signupBar: { position: "fixed", bottom: 54, left: 0, right: 0, background: "#1F2630", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "8px 14px", fontSize: 11.5, flexWrap: "wrap", zIndex: 19 },
   toastBanner: { background: "#2F6B4F", color: "#fff", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", marginBottom: 12 },
   signupBarBtn: { background: "#fff", color: "#1F2630", border: "none", borderRadius: 14, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 },
-  navItem: { background: "transparent", border: "none", color: "#5C6862", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
-  navItemActive: { background: "#1F2630", border: "none", color: "#fff", fontSize: 12, padding: "8px 12px", borderRadius: 8, cursor: "pointer" },
+  navItem: { background: "transparent", border: "none", color: "#5C6862", fontSize: 12, padding: "10px 12px", borderRadius: 8, cursor: "pointer", minHeight: 44 },
+  navItemActive: { background: "#1F2630", border: "none", color: "#fff", fontSize: 12, padding: "10px 12px", borderRadius: 8, cursor: "pointer", minHeight: 44 },
   moreSheet: { position: "fixed", bottom: 56, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 700, background: "#FBFAF6", border: "1px solid #D8E2DA", borderRadius: 14, padding: 10, display: "flex", flexDirection: "column", gap: 4, zIndex: 21, boxShadow: "0 -2px 12px rgba(31,38,48,0.08)" },
   moreItem: { background: "transparent", border: "none", color: "#1F2630", fontSize: 13, padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" },
   moreItemActive: { background: "#F1F4F1", border: "none", color: "#1F2630", fontSize: 13, padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left", fontWeight: 600 },
