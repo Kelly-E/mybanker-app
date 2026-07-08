@@ -1002,7 +1002,7 @@ export default function MyBanker() {
         {step === 2 && <ExpenseStep {...sharedProps} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
         {step === 3 && (
           <AssetBaseline assetInput={assetInput} setAssetInput={setAssetInput}
-            holdings={holdings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
+            holdings={holdings} setHoldings={setHoldings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
             removeHoldingRow={removeHoldingRow}
             totalHoldingsValue={holdings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
             otherAssets={otherAssets} updateOtherAsset={updateOtherAsset} updateOtherAssetLabel={updateOtherAssetLabel} updateOtherAssetRate={updateOtherAssetRate}
@@ -1209,7 +1209,9 @@ function ExpenseStep({ detailedExpense, setDetailedExpense, expenses, updateExpe
       {showToast && <div style={styles.toastBanner}>保存しました ✓</div>}
     </div>
   );
-}({ riskProfile, setRiskProfile, onNext, onBack }) {
+}
+
+function RiskStep({ riskProfile, setRiskProfile, onNext, onBack }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 3 — 運用方針</p>
@@ -1352,7 +1354,7 @@ function HoldingsEditor({ holdings, setHoldings, addHoldingRow, updateHoldingFie
   );
 }
 
-function AssetBaseline({ assetInput, setAssetInput, holdings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, onNext, onBack }) {
+function AssetBaseline({ assetInput, setAssetInput, holdings, setHoldings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, onNext, onBack }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 4 — 現在の資産</p>
