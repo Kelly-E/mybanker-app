@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 // Vercel Cronから月1回呼ばれる。通知オン（email_reminder = true）のユーザーにメールを送る。
 // セキュリティのため、CRON_SECRETによる認証を行う。
 export async function GET(req) {
@@ -12,7 +10,9 @@ export async function GET(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 通知オンのユーザーのメールアドレス一覧を取得
+  // Resendの初期化をここで行う（ビルド時ではなく実行時にAPIキーを参照する）
+  const resend = new Resend(process.env.RESEND_API_KEY);
+
   const { data: profiles, error } = await supabaseAdmin
     .from("user_profiles")
     .select("user_id, reminder_email")
