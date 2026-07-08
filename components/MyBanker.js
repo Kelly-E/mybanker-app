@@ -417,6 +417,9 @@ export default function MyBanker() {
   const updateOtherAssetRate = (key) => (e) => setOtherAssets(otherAssets.map((x) => (x.key === key ? { ...x, rate: e.target.value } : x)));
   const addOtherAssetRow = () => setOtherAssets([...otherAssets, { key: "custom-" + Date.now(), label: "", amount: "0", rate: "0", custom: true }]);
   const removeOtherAsset = (key) => setOtherAssets(otherAssets.filter((x) => x.key !== key));
+  const addHoldingRow = () => setHoldings([...holdings, { id: Date.now(), name: "", amount: "0", rate: "0" }]);
+  const updateHoldingField = (id, field) => (e) => setHoldings(holdings.map((h) => h.id === id ? { ...h, [field]: e.target.value } : h));
+  const removeHoldingRow = (id) => setHoldings(holdings.filter((h) => h.id !== id));
   const otherAssetsTotal = otherAssets.reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
   const totalExpense = useMemo(
@@ -970,7 +973,7 @@ export default function MyBanker() {
     reviewSpan, setReviewSpan, email, setEmail,
     assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo,
     incomeLogInput, setIncomeLogInput, addIncomeLog, incomeLogs, incomeProjection,
-    holdings, setHoldings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
+    holdings, setHoldings, addHoldingRow, updateHoldingField, removeHoldingRow, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
     otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal,
     holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog,
     userAge, ageDecade, assetPercentile, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
@@ -999,12 +1002,12 @@ export default function MyBanker() {
         {step === 2 && <ExpenseStep {...sharedProps} onNext={() => setStep(3)} onBack={() => setStep(1)} />}
         {step === 3 && (
           <AssetBaseline assetInput={assetInput} setAssetInput={setAssetInput}
-            holdings={holdings} holdingInput={holdingInput} setHoldingInput={setHoldingInput} addHolding={addHolding}
-            removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
+            holdings={holdings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
+            removeHoldingRow={removeHoldingRow}
             totalHoldingsValue={holdings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
             otherAssets={otherAssets} updateOtherAsset={updateOtherAsset} updateOtherAssetLabel={updateOtherAssetLabel} updateOtherAssetRate={updateOtherAssetRate}
             addOtherAssetRow={addOtherAssetRow} removeOtherAsset={removeOtherAsset} otherAssetsTotal={otherAssetsTotal}
-            onNext={() => { if (holdingInput.name || holdingInput.amount) return; if (assetLogs.length === 0) addAssetLog(); finishOnboarding(); }} onBack={() => setStep(2)} />
+            onNext={() => { if (assetLogs.length === 0) addAssetLog(); finishOnboarding(); }} onBack={() => setStep(2)} />
         )}
       </div>
     </div>
@@ -1289,59 +1292,67 @@ function OtherAssetsEditor({ otherAssets, updateOtherAsset, updateOtherAssetLabe
   );
 }
 
-function HoldingsEditor({ holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue }) {
-  const [showForm, setShowForm] = useState(false);
-  const filtered = HOLDING_PRESETS.filter((p) => holdingInput.name && p.name.toLowerCase().includes(holdingInput.name.toLowerCase()));
+function HoldingsEditor({ holdings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue }) {
+  const [suggestId, setSuggestId] = useState(null);
+  const pickPresetForRow = (id, p) => {
+    updateHoldingField(id, "name")({ target: { value: p.name } });
+    updateHoldingField(id, "rate")({ target: { value: String(p.rate) } });
+    setSuggestId(null);
+  };
   return (
     <div>
       <div style={styles.totalLineTop}>株式・投資信託の合計：<span style={styles.totalValue}>¥{fmt(totalHoldingsValue)}</span></div>
-      <p style={styles.hint}>投資信託・株式・ETFなどを銘柄ごとに登録できます。候補から選ぶと想定年率が自動入力されます。</p>
-
-      {holdings.length > 0 && (
-        <div style={{ ...styles.ledger, marginBottom: 12 }}>
-          {holdings.map((h) => (
-            <div key={h.id} style={styles.ledgerRow}>
-              <div><div style={styles.ledgerLabel}>{h.name}</div><div style={styles.ledgerNote}>想定年率 {h.rate}%</div></div>
-              <div style={styles.allocRight}>
-                <div style={styles.ledgerValue}>¥{fmt(h.amount)}</div>
-                <button style={styles.removeBtn} onClick={() => removeHolding(h.id)}>×</button>
+      <p style={styles.hint}>投資信託・株式・ETFなどを銘柄ごとに登録できます。商品名を入力すると候補と想定年率が表示されます。</p>
+      <div style={styles.otherAssetList}>
+        {holdings.map((h) => {
+          const filtered = HOLDING_PRESETS.filter((p) => h.name && p.name.toLowerCase().includes(h.name.toLowerCase()));
+          return (
+            <div key={h.id} style={styles.otherAssetCard}>
+              <div style={styles.otherAssetCardTop}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <input
+                    style={styles.otherAssetLabelInput} value={h.name} placeholder="商品名（例：eMAXIS Slim 全世界株式）"
+                    onChange={(e) => { updateHoldingField(h.id, "name")(e); setSuggestId(h.id); }}
+                    onFocus={() => setSuggestId(h.id)}
+                  />
+                  {suggestId === h.id && filtered.length > 0 && (
+                    <div style={styles.suggestBox}>
+                      {filtered.map((p) => (
+                        <div key={p.name} style={styles.suggestItem} onClick={() => pickPresetForRow(h.id, p)}>
+                          <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button style={styles.removeBtn} onClick={() => removeHoldingRow(h.id)}>×</button>
+              </div>
+              <div style={styles.otherAssetCardRow}>
+                <label style={styles.otherAssetFieldWrap}>
+                  <span style={styles.fieldLabel}>保有額</span>
+                  <div style={styles.fieldInputRow}>
+                    <NumInput value={h.amount} onChange={updateHoldingField(h.id, "amount")} />
+                    <span style={styles.suffix}>円</span>
+                  </div>
+                </label>
+                <label style={styles.otherAssetFieldWrap}>
+                  <span style={styles.fieldLabel}>想定年率</span>
+                  <div style={styles.fieldInputRow}>
+                    <NumInput value={h.rate} onChange={updateHoldingField(h.id, "rate")} />
+                    <span style={styles.suffix}>%</span>
+                  </div>
+                </label>
               </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {!showForm ? (
-        <button style={styles.addRowBtn} onClick={() => setShowForm(true)}>+ 銘柄を追加する</button>
-      ) : (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ position: "relative", marginBottom: 12 }}>
-            <Field label="商品名" value={holdingInput.name} onChange={(e) => { setHoldingInput({ ...holdingInput, name: e.target.value }); setShowSuggest(true); }} hint="例：eMAXIS Slim 全世界株式" type="text" />
-            {showSuggest && filtered.length > 0 && (
-              <div style={styles.suggestBox}>
-                {filtered.map((p) => (
-                  <div key={p.name} style={styles.suggestItem} onClick={() => pickPreset(p)}>
-                    <span>{p.name}</span><span style={styles.suggestRate}>年率{p.rate}%目安</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={styles.grid2}>
-            <Field label="保有額" value={holdingInput.amount} onChange={(e) => setHoldingInput({ ...holdingInput, amount: e.target.value })} suffix="円" />
-            <Field label="想定年率" value={holdingInput.rate} onChange={(e) => setHoldingInput({ ...holdingInput, rate: e.target.value })} suffix="%" hint="候補選択で自動入力、手動でも変更可" />
-          </div>
-          <div style={styles.btnRow}>
-            <button style={styles.primaryBtn} onClick={() => { addHolding(); setShowForm(false); }}>追加する</button>
-            <button style={styles.ghostBtn} onClick={() => { setHoldingInput({ name: "", amount: "", rate: "" }); setShowForm(false); }}>閉じる</button>
-          </div>
-        </div>
-      )}
+          );
+        })}
+        <button style={styles.addRowBtn} onClick={addHoldingRow}>+ 銘柄を追加する</button>
+      </div>
     </div>
   );
 }
 
-function AssetBaseline({ assetInput, setAssetInput, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, onNext, onBack }) {
+function AssetBaseline({ assetInput, setAssetInput, holdings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, onNext, onBack }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>STEP 4 — 現在の資産</p>
@@ -1361,19 +1372,13 @@ function AssetBaseline({ assetInput, setAssetInput, holdings, holdingInput, setH
       <div style={styles.divider} />
       <p style={styles.chartTitle}>株式・投資信託（個別に登録します）</p>
       <HoldingsEditor
-        holdings={holdings} holdingInput={holdingInput} setHoldingInput={setHoldingInput} addHolding={addHolding}
-        removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
-        totalHoldingsValue={totalHoldingsValue}
+        holdings={holdings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
+        removeHoldingRow={removeHoldingRow} totalHoldingsValue={totalHoldingsValue}
       />
 
-      {(holdingInput.name || holdingInput.amount) && (
-        <div style={styles.statusBanner2(false)}>
-          株式・投資信託の入力欄に未登録の内容があります。「登録する」を押してから次に進んでください(不要であれば入力欄を空にしてください)。
-        </div>
-      )}
       <div style={styles.btnRow}>
         <button style={styles.ghostBtn} onClick={onBack}>戻る</button>
-        <button style={{ ...styles.primaryBtn, opacity: (holdingInput.name || holdingInput.amount) ? 0.4 : 1 }} onClick={onNext} disabled={!!(holdingInput.name || holdingInput.amount)}>メイン画面へ</button>
+        <button style={styles.primaryBtn} onClick={onNext}>メイン画面へ</button>
       </div>
     </div>
   );
@@ -2416,7 +2421,7 @@ function SimulatorPanel({ monthlyFree, totalExpense, bonusHandling, bonusAnnualN
   );
 }
 
-function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo, holdings, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog, monthlyIncomeComputed, resetPlanBaseline }) {
+function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, updateAssetLog, updateAssetLogItemAmount, deleteAssetLog, goalCompareData, impliedSpendingInfo, holdings, addHoldingRow, updateHoldingField, removeHoldingRow, totalHoldingsValue, otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal, monthlyIncomeComputed, resetPlanBaseline }) {
   const last = assetLogs[assetLogs.length - 1];
   const [openLogId, setOpenLogId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -2457,25 +2462,6 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
           {!impliedSpendingInfo.hasPlan && (
             <p style={styles.hint}>※「積立プランを決める」を設定すると、株価の変動に影響されない、より正確な支出推定になります。</p>
           )}
-        </div>
-      )}
-
-      {goalCompareData.length > 1 && (
-        <div style={styles.chartCard}>
-          <p style={styles.chartTitle}>資産の推移予想 vs 実際の資産</p>
-          <TouchDismissChart><ResponsiveContainer width="100%" height={200}>
-            <LineChart data={goalCompareData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6862" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#5C6862" }} tickFormatter={fmtManOku} />
-              <Tooltip formatter={(v) => `¥${fmt(v)}`} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="計画上の想定" stroke="#9AA6A0" strokeDasharray="4 3" dot={false} name="資産の推移予想" />
-              <Line type="monotone" dataKey="実際の資産" stroke="#3D5A99" strokeWidth={2.5} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer></TouchDismissChart>
-          <p style={styles.chartNote}>※「資産の推移予想」は最初に立てた時点のまま固定されます。</p>
-          <button style={styles.smallLinkBtn} onClick={resetPlanBaseline}>今の積立設定で、資産の推移予想をリセットする</button>
         </div>
       )}
 
@@ -2551,19 +2537,13 @@ function HoldingsPanel({ assetInput, setAssetInput, addAssetLog, assetLogs, upda
       <div style={styles.divider} />
       <p style={styles.chartTitle}>株式・投資信託（個別の保有資産を登録）</p>
       <HoldingsEditor
-        holdings={holdings} holdingInput={holdingInput} setHoldingInput={setHoldingInput} addHolding={addHolding}
-        removeHolding={removeHolding} showSuggest={showSuggest} setShowSuggest={setShowSuggest} pickPreset={pickPreset}
-        totalHoldingsValue={totalHoldingsValue}
+        holdings={holdings} addHoldingRow={addHoldingRow} updateHoldingField={updateHoldingField}
+        removeHoldingRow={removeHoldingRow} totalHoldingsValue={totalHoldingsValue}
       />
 
       <div style={styles.divider} />
-      {(holdingInput.name || holdingInput.amount) && (
-        <div style={styles.statusBanner2(false)}>
-          株式・投資信託の入力欄に未登録の内容があります。「登録する」を押してから保存してください(不要であれば入力欄を空にしてください)。
-        </div>
-      )}
       {saveToast && <div style={styles.toastBanner}>保存しました ✓</div>}
-      <button style={{ ...styles.primaryBtn, width: "100%", opacity: (holdingInput.name || holdingInput.amount) ? 0.4 : 1 }} onClick={handleSave} disabled={!!(holdingInput.name || holdingInput.amount)}>{todayLabel}の記録として保存する</button>
+      <button style={{ ...styles.primaryBtn, width: "100%" }} onClick={handleSave}>{todayLabel}の記録として保存する</button>
       <p style={styles.hint}>貯金、その他資産、株式・投資信託、すべての入力・編集が終わったら、このボタンを押してください。</p>
     </div>
   );
