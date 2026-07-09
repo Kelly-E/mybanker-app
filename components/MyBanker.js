@@ -1207,7 +1207,7 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
                   </div>
                   <div style={styles.otherAssetCardRow}>
                     <label style={styles.otherAssetFieldWrap}>
-                      <span style={styles.fieldLabel}>月収入</span>
+                      <span style={styles.fieldLabel}>月収入（手取り）</span>
                       <div style={styles.fieldInputRow}>
                         <NumInput
                           value={s.amount}
@@ -1222,7 +1222,7 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
             </div>
           )}
           <button style={styles.addRowBtn} onClick={() => setSideIncomes([...sideIncomes, { id: Date.now(), name: "", amount: "" }])}>+ 副業・副収入を追加する</button>
-          {sideIncomeMonthlyTotal > 0 && <p style={styles.hint}>副業収入の合計：月 ¥{fmt(sideIncomeMonthlyTotal)} / 年 ¥{fmt(sideIncomeMonthlyTotal * 12)}（年収・自由資金の計算に反映されます）</p>}
+          {sideIncomeMonthlyTotal > 0 && <p style={styles.hint}>副業収入（手取り）合計：月 ¥{fmt(sideIncomeMonthlyTotal)} / 年 ¥{fmt(sideIncomeMonthlyTotal * 12)}（年収・自由資金の計算に含まれます）</p>}
         </div>
       </div>
 
