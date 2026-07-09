@@ -318,15 +318,24 @@ export default function MyBanker() {
   const [isAnonymousUser, setIsAnonymousUser] = useState(false);
 
   useEffect(() => {
-    getPremiumProfile()
-      .then((p) => {
-        const stillValid = p.premium_until ? new Date(p.premium_until) > new Date() : p.is_premium;
-        setIsPremium(!!stillValid);
-        setMyReferralCode(p.referral_code);
-        setPremiumUntil(p.premium_until || null);
-        setPremiumSource(stillValid ? p.premium_source : null);
-      })
-      .catch(() => {});
+    const loadProfile = (attempt = 0) => {
+      getPremiumProfile()
+        .then((p) => {
+          const stillValid = p.premium_until ? new Date(p.premium_until) > new Date() : p.is_premium;
+          setIsPremium(!!stillValid);
+          setMyReferralCode(p.referral_code);
+          setPremiumUntil(p.premium_until || null);
+          setPremiumSource(stillValid ? p.premium_source : null);
+          // referral_codeがまだ生成されていない場合(DBトリガーが遅れているケース)、
+          // 1.5秒後・4秒後の2回リトライする
+          if (!p.referral_code && attempt < 2) {
+            const delays = [1500, 4000];
+            setTimeout(() => loadProfile(attempt + 1), delays[attempt]);
+          }
+        })
+        .catch(() => {});
+    };
+    loadProfile();
 
     getCurrentUser().then((u) => setIsAnonymousUser(!u?.email));
 
@@ -1851,8 +1860,8 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
 
         {myReferralCode && (
           <div style={{ marginTop: 16 }}>
-            <p style={styles.paywallNote}>友人を1人紹介すると、その月は無料</p>
-            <p style={styles.fieldLabel}>あなたの紹介リンク（友人がこのリンクから登録すると、あなたが1ヶ月無料に）</p>
+            <p style={styles.paywallNote}>友人を1人紹介すると、30日間無料</p>
+            <p style={styles.fieldLabel}>あなたの紹介リンク（友人がこのリンクから登録すると、あなたが30日間無料に）</p>
             <div style={styles.fieldInputRow}>
               <input style={styles.input} value={referralUrl} readOnly />
               <button style={styles.ghostBtn} onClick={handleCopy}>{copied ? "コピーしました" : "コピー"}</button>
@@ -3032,7 +3041,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
 
       {myReferralCode && (
         <div style={{ marginTop: 14 }}>
-          <p style={styles.fieldLabel}>あなたの紹介リンク（友人が登録すると、あなたが1ヶ月プレミアム無料に）</p>
+          <p style={styles.fieldLabel}>あなたの紹介リンク（友人が登録すると、あなたが30日間無料に）</p>
           <div style={styles.fieldInputRow}>
             <input style={styles.input} value={referralUrl} readOnly />
             <button style={styles.ghostBtn} onClick={handleCopy}>{copied ? "コピーしました" : "コピー"}</button>
