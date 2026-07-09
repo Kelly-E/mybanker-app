@@ -969,7 +969,7 @@ export default function MyBanker() {
   const sharedProps = {
     form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio,
     bonusHandling, setBonusHandling, bonusInputType, setBonusInputType,
-    sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome,
+    sideIncomes, setSideIncomes, sideIncomeMonthlyTotal, removeSideIncome,
     detailedExpense, setDetailedExpense, expenses, updateExpense, updateLabel, addExpenseRow, removeExpense, totalExpense, insuranceRatio,
     riskProfile, setRiskProfile,
     monthlyFree, alloc, setAlloc, allocTouched, setAllocTouched, allocNums, allocTotal, allocOver, allocUnder,
@@ -1150,7 +1150,7 @@ function NumInput({ value, onChange, placeholder }) {
   return <input style={styles.input} value={display} onChange={handleChange} inputMode="numeric" placeholder={placeholder} />;
 }
 
-function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, sideIncomeInput, setSideIncomeInput, addSideIncome, removeSideIncome, sideIncomeMonthlyTotal, showSideIncome, setShowSideIncome, saveLabel, showToast }) {
+function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComputed, monthlyGrossComputed, takeHomeRatio, bonusHandling, setBonusHandling, bonusInputType, setBonusInputType, onNext, onBack, sideIncomes, setSideIncomes, removeSideIncome, sideIncomeMonthlyTotal, saveLabel, showToast }) {
   const bonusAnnualVal = Number(form.bonusAnnual) || 0;
   return (
     <div style={styles.card}>
@@ -1192,34 +1192,38 @@ function IncomeStep({ form, update, incomeMode, setIncomeMode, monthlyIncomeComp
       <p style={styles.hint}>手取り率は年収帯によって変わるため、年収に応じた目安（独身・扶養なし想定の簡易モデル）で計算しています。</p>
 
       <div style={{ marginTop: 10 }}>
-        {!showSideIncome ? (
-          <button style={styles.sideIncomeToggle} onClick={() => setShowSideIncome(true)}>+ 副業・副収入がある場合はこちら</button>
-        ) : (
-          <div style={styles.nisaTargetBox}>
-            <span style={styles.fieldLabel}>副業・副収入（複数登録できます）</span>
-            {sideIncomes.map((s) => (
-              <div key={s.id} style={styles.nisaSplitRow}>
-                <span style={styles.nisaSplitLabel}>{s.name}</span>
-                <div style={styles.allocRight}>
-                  <span style={styles.allocPct}>¥{fmt(s.amount)}/月</span>
-                  <button style={styles.removeBtn} onClick={() => removeSideIncome(s.id)}>×</button>
+        <div style={styles.nisaTargetBox}>
+          <span style={styles.fieldLabel}>副業・副収入（任意）</span>
+          {sideIncomes.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              {sideIncomes.map((s) => (
+                <div key={s.id} style={{ ...styles.otherAssetCard, marginBottom: 8 }}>
+                  <div style={styles.otherAssetCardTop}>
+                    <input
+                      style={styles.otherAssetLabelInput} value={s.name} placeholder="副業名・メモ（任意）"
+                      onChange={(e) => setSideIncomes(sideIncomes.map((x) => x.id === s.id ? { ...x, name: e.target.value } : x))}
+                    />
+                    <button style={styles.removeBtn} onClick={() => removeSideIncome(s.id)}>×</button>
+                  </div>
+                  <div style={styles.otherAssetCardRow}>
+                    <label style={styles.otherAssetFieldWrap}>
+                      <span style={styles.fieldLabel}>月収入</span>
+                      <div style={styles.fieldInputRow}>
+                        <NumInput
+                          value={s.amount}
+                          onChange={(e) => setSideIncomes(sideIncomes.map((x) => x.id === s.id ? { ...x, amount: e.target.value } : x))}
+                        />
+                        <span style={styles.suffix}>円/月</span>
+                      </div>
+                    </label>
+                  </div>
                 </div>
-              </div>
-            ))}
-            <div style={styles.otherAssetCard}>
-              <div style={styles.otherAssetCardTop}>
-                <input style={styles.otherAssetLabelInput} value={sideIncomeInput.name} placeholder="副業名・メモ（任意）" onChange={(e) => setSideIncomeInput({ ...sideIncomeInput, name: e.target.value })} />
-              </div>
-              <div style={styles.fieldInputRow}>
-                <NumInput value={sideIncomeInput.amount} onChange={(e) => setSideIncomeInput({ ...sideIncomeInput, amount: e.target.value })} placeholder="月収" />
-                <span style={styles.suffix}>円/月</span>
-              </div>
+              ))}
             </div>
-            <button style={styles.addRowBtn} onClick={addSideIncome}>+ 追加する</button>
-            {sideIncomeMonthlyTotal > 0 && <p style={styles.hint}>副業収入の合計：月 ¥{fmt(sideIncomeMonthlyTotal)}（年収・自由資金の計算に反映されます）</p>}
-            <button style={{ ...styles.ghostBtn, marginTop: 8 }} onClick={() => setShowSideIncome(false)}>閉じる</button>
-          </div>
-        )}
+          )}
+          <button style={styles.addRowBtn} onClick={() => setSideIncomes([...sideIncomes, { id: Date.now(), name: "", amount: "" }])}>+ 副業・副収入を追加する</button>
+          {sideIncomeMonthlyTotal > 0 && <p style={styles.hint}>副業収入の合計：月 ¥{fmt(sideIncomeMonthlyTotal)} / 年 ¥{fmt(sideIncomeMonthlyTotal * 12)}（年収・自由資金の計算に反映されます）</p>}
+        </div>
       </div>
 
       <div style={styles.divider} />
