@@ -1054,7 +1054,7 @@ function Header({ step, setStep }) {
 
 function Intro({ onNext, onLogin }) {
   const [age, setAge] = useState("");
-  const [income, setIncome] = useState("");
+  const [assets, setAssets] = useState("");
   const [result, setResult] = useState(null);
 
   const ageDecade = (a) => {
@@ -1069,37 +1069,51 @@ function Intro({ onNext, onLogin }) {
 
   const handleDiagnose = () => {
     const a = Number(age);
-    const inc = Number(income);
-    if (!a || !inc) return;
+    const assetMan = Number(assets) / 10000;
+    if (!a || !assetMan) return;
     const decade = ageDecade(a);
     const ageStats = AGE_STATS[decade];
-    const incStats = INCOME_STATS[decade];
-    const incPct = estimatePercentile(inc, incStats.mean, incStats.median);
-    const medal = (pct) => pct <= 5 ? "💎" : pct <= 20 ? "🥇" : pct <= 50 ? "🥈" : "🥉";
-    setResult({ decade, incPct, medal: medal(incPct), inc, a });
+    const pct = estimatePercentile(assetMan, ageStats.mean, ageStats.median);
+    const dist = generateDistributionCurve(ageStats.mean, ageStats.median);
+    const medal = (p) => p <= 5 ? "💎" : p <= 20 ? "🥇" : p <= 50 ? "🥈" : "🥉";
+    const highlightIdx = findBucketIndex(dist, assetMan);
+    setResult({ decade, pct, medal: medal(pct), dist, highlightIdx, a });
   };
 
   if (result) {
     return (
       <div style={styles.card}>
         <p style={styles.eyebrow}>診断結果</p>
-        <div style={{ textAlign: "center", padding: "8px 0 16px" }}>
-          <div style={{ fontSize: 52, marginBottom: 4 }}>{result.medal}</div>
-          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 36, fontWeight: 700, color: "#B5582E" }}>上位 {result.incPct}%</div>
-          <p style={{ fontSize: 14, color: "#5C6862", margin: "8px 0 0" }}>{result.decade}代の年収ランキング（同年代 {result.decade}代との比較）</p>
-          <p style={{ fontSize: 12, color: "#9AA6A0", marginTop: 4 }}>※ doda「平均年収ランキング2025」を参考にした概算です</p>
+        <div style={{ textAlign: "center", padding: "8px 0 12px" }}>
+          <div style={{ fontSize: 48, marginBottom: 4 }}>{result.medal}</div>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 38, fontWeight: 700, color: "#B5582E" }}>上位 {result.pct}%</div>
+          <p style={{ fontSize: 13, color: "#5C6862", margin: "6px 0 0" }}>{result.a}歳・{result.decade}代の総資産ランキング</p>
+          <p style={{ fontSize: 11, color: "#9AA6A0", marginTop: 2 }}>※ J-FLEC「家計の金融行動に関する世論調査」を参考にした概算です</p>
         </div>
 
-        <div style={{ background: "#F7F5EF", borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: "#1F2630", margin: 0, lineHeight: 1.7 }}>
-            会員登録(無料)すると、<strong>資産・支出・貯蓄率</strong>でも同年代・同収入・東証プライム社員との詳細比較が見られます。<br />
-            <strong style={{ color: "#B5582E" }}>30日間すべて無料</strong>でお試しいただけます。
+        <TouchDismissChart><ResponsiveContainer width="100%" height={150}>
+          <BarChart data={result.dist} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid stroke="#E3E9E4" strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#5C6862" }} />
+            <YAxis tick={{ fontSize: 10, fill: "#5C6862" }} tickFormatter={(v) => `${v}%`} />
+            <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+              {result.dist.map((entry, i) => (
+                <Cell key={i} fill={i === result.highlightIdx ? "#B5582E" : "#C7CDD6"} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer></TouchDismissChart>
+        <p style={{ fontSize: 11, color: "#9AA6A0", marginTop: 4 }}>● オレンジ＝あなたの位置</p>
+
+        <div style={{ background: "#F7F5EF", borderRadius: 12, padding: "14px 16px", margin: "16px 0" }}>
+          <p style={{ fontSize: 13, color: "#1F2630", margin: 0, lineHeight: 1.8 }}>
+            登録すると、<strong>年収・支出・貯蓄率・資産成長率など</strong>でも同年代・同収入・東証プライム社員との詳細比較が見られます。
           </p>
         </div>
 
-        <button style={styles.primaryBtn} onClick={onNext}>無料で登録して全部見る →</button>
+        <button style={{ ...styles.primaryBtn, width: "100%", fontSize: 16, padding: "16px" }} onClick={onNext}>無料で登録して全部見る →</button>
         <button style={{ ...styles.ghostBtn, marginTop: 10, width: "100%" }} onClick={() => setResult(null)}>もう一度診断する</button>
-        <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 12 }} onClick={onLogin}>すでにアカウントをお持ちの方</button>
+        <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 12, textAlign: "center", width: "100%" }} onClick={onLogin}>すでにアカウントをお持ちの方</button>
       </div>
     );
   }
@@ -1107,8 +1121,8 @@ function Intro({ onNext, onLogin }) {
   return (
     <div style={styles.card}>
       <p style={styles.eyebrow}>自分の立ち位置がわかる資産管理サービス</p>
-      <h1 style={styles.h1}>あなたの年収、<br />同年代で何位？</h1>
-      <p style={styles.lead}>年齢と年収を入れるだけで、同年代の中での順位がわかります。</p>
+      <h1 style={styles.h1}>あなたの資産、<br />同年代で何位？</h1>
+      <p style={styles.lead}>年齢と総資産を入れるだけで、同年代の中での順位がわかります。</p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
         <label style={styles.field}>
@@ -1123,27 +1137,27 @@ function Intro({ onNext, onLogin }) {
           </div>
         </label>
         <label style={styles.field}>
-          <span style={styles.fieldLabel}>年収（額面）</span>
+          <span style={styles.fieldLabel}>総資産（貯金＋投資など）</span>
           <div style={styles.fieldInputRow}>
             <input
               style={{ ...styles.input, fontSize: 18 }}
-              type="number" inputMode="numeric" placeholder="450"
-              value={income} onChange={(e) => setIncome(e.target.value)}
+              type="number" inputMode="numeric" placeholder="3000000"
+              value={assets} onChange={(e) => setAssets(e.target.value)}
             />
-            <span style={styles.suffix}>万円</span>
+            <span style={styles.suffix}>円</span>
           </div>
         </label>
       </div>
 
       <button
-        style={{ ...styles.primaryBtn, width: "100%", fontSize: 17, padding: "16px", opacity: (!age || !income) ? 0.5 : 1 }}
-        onClick={handleDiagnose} disabled={!age || !income}
+        style={{ ...styles.primaryBtn, width: "100%", fontSize: 17, padding: "16px", opacity: (!age || !assets) ? 0.5 : 1 }}
+        onClick={handleDiagnose} disabled={!age || !assets}
       >
         順位を調べる →
       </button>
 
       <div style={{ marginTop: 20, borderTop: "1px solid #E3E9E4", paddingTop: 16 }}>
-        <p style={{ fontSize: 12, color: "#9AA6A0", textAlign: "center", marginBottom: 12 }}>資産・支出・貯蓄率まで記録・管理したい方はこちら</p>
+        <p style={{ fontSize: 12, color: "#9AA6A0", textAlign: "center", marginBottom: 12 }}>資産・収入・支出まで記録・管理したい方はこちら</p>
         <button style={{ ...styles.ghostBtn, width: "100%" }} onClick={onNext}>詳しく設定して使う</button>
         <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 10, textAlign: "center", width: "100%" }} onClick={onLogin}>すでにアカウントをお持ちの方</button>
       </div>
