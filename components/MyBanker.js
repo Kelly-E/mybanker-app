@@ -1021,7 +1021,7 @@ export default function MyBanker() {
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
-        <Header step={step} setStep={setStep} />
+        {step !== 0 && step !== -1 && <Header step={step} setStep={setStep} />}
         {step === 0 && <Intro onNext={() => setStep(1)} onLogin={() => setStep(-1)} />}
         {step === -1 && <LoginOnly onDone={() => window.location.reload()} onBack={() => setStep(0)} />}
         {step === 1 && <IncomeStep {...sharedProps} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
@@ -1060,11 +1060,11 @@ function Intro({ onNext, onLogin }) {
 
   const ageDecade = (a) => {
     const n = Number(a);
-    if (n < 25) return 20;
-    if (n < 35) return 30;
-    if (n < 45) return 40;
-    if (n < 55) return 50;
-    if (n < 65) return 60;
+    if (n < 30) return 20;
+    if (n < 40) return 30;
+    if (n < 50) return 40;
+    if (n < 60) return 50;
+    if (n < 70) return 60;
     return 70;
   };
 
@@ -1098,7 +1098,7 @@ function Intro({ onNext, onLogin }) {
         <div style={{ textAlign: "center", padding: "8px 0 12px" }}>
           <div style={{ fontSize: 48, marginBottom: 4 }}>{result.medal}</div>
           <div style={{ fontFamily: "'Fraunces', serif", fontSize: 38, fontWeight: 700, color: "#B5582E" }}>上位 {result.pct}%</div>
-          <p style={{ fontSize: 13, color: "#5C6862", margin: "6px 0 0" }}>{result.a}歳・{result.decade}代の総資産ランキング</p>
+          <p style={{ fontSize: 13, color: "#5C6862", margin: "6px 0 0" }}>同年代（{result.decade}代）の総資産ランキング</p>
           <p style={{ fontSize: 11, color: "#9AA6A0", marginTop: 2 }}>※ J-FLEC「家計の金融行動に関する世論調査」を参考にした概算です</p>
         </div>
 
