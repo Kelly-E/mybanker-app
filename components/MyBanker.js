@@ -5,6 +5,22 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const fmt = (n) => Math.round(n || 0).toLocaleString("ja-JP");
+
+// Supabaseから返ってくる英語のエラーメッセージを日本語に変換する
+const toJaError = (err) => {
+  const msg = err?.message || "";
+  if (msg.includes("already registered") || msg.includes("User already registered") || msg.includes("already been registered")) return "このメールアドレスはすでに登録されています。ログインしてください。";
+  if (msg.includes("Invalid login credentials") || msg.includes("invalid_credentials")) return "メールアドレスまたはパスワードが正しくありません。";
+  if (msg.includes("Email not confirmed")) return "メール認証が完了していません。届いたメール内のリンクを開いてください。";
+  if (msg.includes("Password should be at least")) return "パスワードは6文字以上にしてください。";
+  if (msg.includes("Unable to validate email address")) return "メールアドレスの形式が正しくありません。";
+  if (msg.includes("Email rate limit exceeded") || msg.includes("over_email_send_rate_limit")) return "メールの送信が多すぎます。しばらく待ってから再試行してください。";
+  if (msg.includes("Token has expired") || msg.includes("expired")) return "リンクの有効期限が切れています。もう一度お試しください。";
+  if (msg.includes("User not found")) return "このメールアドレスは登録されていません。";
+  if (msg.includes("New password should be different")) return "新しいパスワードは現在のパスワードと異なるものにしてください。";
+  if (msg.includes("signup is disabled")) return "現在、新規登録を受け付けていません。";
+  return "エラーが発生しました。時間をおいて再試行してください。";
+};
 const fmtManOku = (v) => {
   const oku = 100000000;
   if (Math.abs(v) >= oku) {
@@ -1061,7 +1077,7 @@ function LoginOnly({ onDone, onBack }) {
       await signInWithEmail(email, password);
       onDone();
     } catch (err) {
-      setMessage("メールアドレスまたはパスワードが正しくありません。");
+      setMessage(toJaError(err));
     }
   };
 
@@ -1072,7 +1088,7 @@ function LoginOnly({ onDone, onBack }) {
       await requestPasswordReset(email);
       setMessage("パスワード再設定メールを送りました。メール内のリンクを開いてください。");
     } catch (err) {
-      setMessage("エラーが発生しました。メールアドレスを確認してください。");
+      setMessage(toJaError(err));
     }
   };
 
@@ -2885,10 +2901,18 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
       setUser(u);
       setMode(null);
       if (u?.id) {
+        // 30日間無料トライアル付与
         fetch("/api/apply-signup-trial", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: u.id }),
-        }).then(() => window.location.reload()).catch(() => {});
+        }).catch(() => {});
+        // リマインドメールを自動オン(登録メアドに月初め通知を送る)
+        fetch("/api/update-reminder-setting", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: u.id, emailReminder: true, reminderEmail: email }),
+        }).catch(() => {});
+        // 少し待ってリロード
+        setTimeout(() => window.location.reload(), 500);
       }
       if (incomingReferralCode && u?.id) {
         fetch("/api/apply-referral", {
@@ -2897,7 +2921,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
         }).catch(() => {});
       }
     } catch (err) {
-      setMessage("エラー: " + err.message);
+      setMessage(toJaError(err));
     }
   };
 
@@ -2908,7 +2932,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
       await signInWithEmail(email, password);
       window.location.reload();
     } catch (err) {
-      setMessage("エラー: " + err.message);
+      setMessage(toJaError(err));
     }
   };
 
@@ -2919,7 +2943,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
       await requestPasswordReset(email);
       setMessage("パスワード再設定用のメールを送りました。メール内のリンクを開いてください。");
     } catch (err) {
-      setMessage("エラー: " + err.message);
+      setMessage(toJaError(err));
     }
   };
 
@@ -2930,7 +2954,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
       await updateEmail(newEmail);
       setEmailMsg("確認メールを送りました。メール内のリンクを開くと変更が完了します。");
     } catch (err) {
-      setEmailMsg("エラー: " + err.message);
+      setEmailMsg(toJaError(err));
     }
   };
 
@@ -2944,7 +2968,7 @@ function AccountPanel({ myReferralCode, isPremium, premiumUntil, incomingReferra
       setPwMsg("パスワードを変更しました。");
       setNewPassword(""); setConfirmPassword("");
     } catch (err) {
-      setPwMsg("エラー: " + err.message);
+      setPwMsg(toJaError(err));
     }
   };
 
