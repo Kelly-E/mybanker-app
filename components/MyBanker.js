@@ -224,6 +224,24 @@ function getAgeDecade(age) {
   return 70;
 }
 
+// 5歳刻みの資産統計キーを返す
+function getAge5Key(age) {
+  if (age < 25) return "20-24";
+  if (age < 30) return "25-29";
+  if (age < 35) return "30-34";
+  if (age < 40) return "35-39";
+  if (age < 45) return "40-44";
+  if (age < 50) return "45-49";
+  if (age < 55) return "50-54";
+  if (age < 60) return "55-59";
+  return "60+";
+}
+
+// 5歳刻みの資産統計を返す
+function getAge5Stats(age) {
+  return AGE_STATS[getAge5Key(age)];
+}
+
 // 標準正規分布の累積分布関数（誤差関数の近似）
 function normalCdf(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -842,16 +860,18 @@ export default function MyBanker() {
     return Math.max(age, 0);
   }, [form.birthDate]);
   const ageDecade = getAgeDecade(userAge);
-  const ageStats = AGE_STATS[ageDecade];
+  const ageStats = AGE_STATS[ageDecade]; // 支出・貯蓄率は10年刻みのデータを使用
+  const age5Stats = getAge5Stats(userAge); // 資産パーセンタイルは5歳刻みのデータを使用
+  const age5Key = getAge5Key(userAge);
   const assetPercentile = useMemo(
-    () => estimatePercentile(totalNetWorth / 10000, ageStats.mean, ageStats.median),
-    [totalNetWorth, ageStats]
+    () => estimatePercentile(totalNetWorth / 10000, age5Stats.mean, age5Stats.median),
+    [totalNetWorth, age5Stats]
   );
   const peerMonthlyExpense = ageStats.monthlyExpense * 10000;
   const expenseDiffVsPeer = totalExpense - peerMonthlyExpense;
   const expenseDiffPct = peerMonthlyExpense > 0 ? Math.round((expenseDiffVsPeer / peerMonthlyExpense) * 100) : 0;
 
-  const assetDistribution = useMemo(() => generateDistributionCurve(ageStats.mean, ageStats.median), [ageStats]);
+  const assetDistribution = useMemo(() => generateDistributionCurve(age5Stats.mean, age5Stats.median), [age5Stats]);
 
   const incomeStats = INCOME_STATS[ageDecade];
   const incomePercentile = useMemo(
@@ -1021,7 +1041,7 @@ export default function MyBanker() {
     holdings, setHoldings, addHoldingRow, updateHoldingField, removeHoldingRow, holdingInput, setHoldingInput, addHolding, removeHolding, showSuggest, setShowSuggest, pickPreset, totalHoldingsValue,
     otherAssets, updateOtherAsset, updateOtherAssetLabel, updateOtherAssetRate, addOtherAssetRow, removeOtherAsset, otherAssetsTotal,
     holdingsLogs, saveHoldingsSnapshot, updateHoldingsLogItem, deleteHoldingsLog,
-    userAge, ageDecade, assetPercentile, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
+    userAge, ageDecade, age5Label: age5Stats.label, assetPercentile, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
     planningFlow, setPlanningFlow,
     assetDistribution, incomePercentile, incomeDistribution, expenseCategoryComparison,
     savingsRatePeer, savingsRateUser, savingsRateDiff, growthRateInfo, isPremium, setIsPremium,
@@ -1211,7 +1231,7 @@ function Intro({ onNext, onLogin }) {
 
         <div style={{ background: "#F7F5EF", borderRadius: 12, padding: "14px 16px", margin: "16px 0" }}>
           <p style={{ fontSize: 13, color: "#1F2630", margin: 0, lineHeight: 1.8 }}>
-            登録すると、<strong>年収・支出・貯蓄率・資産成長率など</strong>でも同年代・同収入・東証プライム社員との詳細比較が見られます。
+            登録すると、<strong>年収・支出・貯蓄率・資産成長率</strong>などでも、同年代・同収入・東証プライム社員との詳細比較が見られます。
           </p>
         </div>
 
@@ -1884,7 +1904,7 @@ function Dashboard(props) {
   );
 }
 
-function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched, goalAmount, monthsToGoal, resetPlanBaseline }) {
+function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, totalExpense, monthlyIncomeComputed, bonusHandling, annualIncomeEstimateNet, projection, riskProfile, annualIncomeEstimateGross, furusatoApprox, allocNums, holdings, goalCompareData, userAge, ageDecade, age5Label, assetPercentile, projectionSeriesKeys, SERIES_COLORS, setDashView, setPlanningFlow, allocTouched, goalAmount, monthsToGoal, resetPlanBaseline }) {
   const lastCompare = goalCompareData[goalCompareData.length - 1];
   const diff = lastCompare ? lastCompare.実際の資産 - lastCompare.計画上の想定 : null;
   const lastLog = assetLogs[assetLogs.length - 1];
@@ -1950,7 +1970,7 @@ function Overview({ totalNetWorth, totalHoldingsValue, assetLogs, monthlyFree, t
       )}
 
       <div style={styles.percentileCard}>
-        <p style={styles.chartTitle}>同年代（{ageDecade}代・{userAge}歳）との比較</p>
+        <p style={styles.chartTitle}>{age5Label}との資産比較</p>
         <div style={styles.percentileRow}>
           <div style={styles.percentileBig}>上位 {assetPercentile}%</div>
           <div style={styles.percentileNote}>総資産が同年代の中でこの位置にいる目安です</div>
@@ -2162,7 +2182,7 @@ function PaywallGate({ isPremium, setIsPremium, myReferralCode, incomingReferral
 
 function RankingPanel(props) {
   const {
-    isPremium, setIsPremium, userAge, ageDecade, assetPercentile, totalNetWorth,
+    isPremium, setIsPremium, userAge, ageDecade, age5Label, assetPercentile, totalNetWorth,
     assetDistribution, incomePercentile, incomeDistribution, annualIncomeEstimateGross,
     expenseCategoryComparison, savingsRatePeer, savingsRateUser, savingsRateDiff,
     growthRateInfo, peerMonthlyExpense, expenseDiffVsPeer, expenseDiffPct,
@@ -2239,8 +2259,7 @@ function RankingPanel(props) {
     if (lines.length === 1) return null; // 何も選ばれていない
     if (lines[lines.length - 1] === "") lines.pop();
     lines.push("━━━━━━━━━━");
-    lines.push("あなたも無料で順位をチェック");
-    lines.push("👇");
+    lines.push("あなたも無料で順位をチェック👇");
     lines.push("https://mybanker-app.vercel.app");
     return lines.join("\n");
   };
@@ -2311,10 +2330,10 @@ function RankingPanel(props) {
 
       {category === "age" && (
         <>
-          <p style={styles.chartTitle}>同年代（{ageDecade}代・{userAge}歳）との比較</p>
+          <p style={styles.chartTitle}>{age5Label}との資産比較</p>
           <div style={styles.percentileRow}>
             <div style={styles.percentileBig}>上位 {assetPercentile}%</div>
-            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）が同年代の中でこの位置にいる目安です</div>
+            <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）が{age5Label}の中でこの位置にいる目安です</div>
           </div>
           {isPremium && (
             <div style={{ marginTop: 16 }}>
@@ -2459,7 +2478,7 @@ function RankingPanel(props) {
 
       {category === "prime" && (
         <>
-          <p style={styles.chartTitle}>東証プライム上場企業の同年代（{ageDecade}代）社員との比較</p>
+          <p style={styles.chartTitle}>東証プライム上場企業の{age5Label}社員との比較</p>
           <div style={styles.percentileRow}>
             <div style={styles.percentileBig}>上位 {primeAssetPercentile}%</div>
             <div style={styles.percentileNote}>総資産（¥{fmt(totalNetWorth)}）がプライム上場企業の同年代社員の中でこの位置にいる目安です</div>
