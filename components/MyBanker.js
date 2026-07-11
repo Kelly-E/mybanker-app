@@ -1033,8 +1033,9 @@ export default function MyBanker() {
             totalHoldingsValue={holdings.reduce((s, h) => s + (Number(h.amount) || 0), 0)}
             otherAssets={otherAssets} updateOtherAsset={updateOtherAsset} updateOtherAssetLabel={updateOtherAssetLabel} updateOtherAssetRate={updateOtherAssetRate}
             addOtherAssetRow={addOtherAssetRow} removeOtherAsset={removeOtherAsset} otherAssetsTotal={otherAssetsTotal}
-            onNext={() => { if (assetLogs.length === 0) addAssetLog(); finishOnboarding(); }} onBack={() => setStep(2)} />
+            onNext={() => { if (assetLogs.length === 0) addAssetLog(); setStep(4); }} onBack={() => setStep(2)} />
         )}
+        {step === 4 && <OnboardingRegisterStep onDone={finishOnboarding} onSkip={finishOnboarding} incomingReferralCode={incomingReferralCode} />}
       </div>
     </div>
   );
@@ -1065,6 +1066,16 @@ function Intro({ onNext, onLogin }) {
     if (n < 55) return 50;
     if (n < 65) return 60;
     return 70;
+  };
+
+  const [assetsDisplay, setAssetsDisplay] = useState(""); // 表示用(カンマ付き)
+
+  const handleAssetsChange = (e) => {
+    const raw = e.target.value.replace(/,/g, "");
+    if (raw === "" || /^\d+$/.test(raw)) {
+      setAssets(raw);
+      setAssetsDisplay(raw ? Number(raw).toLocaleString("ja-JP") : "");
+    }
   };
 
   const handleDiagnose = () => {
@@ -1141,8 +1152,8 @@ function Intro({ onNext, onLogin }) {
           <div style={styles.fieldInputRow}>
             <input
               style={{ ...styles.input, fontSize: 18 }}
-              type="number" inputMode="numeric" placeholder="3000000"
-              value={assets} onChange={(e) => setAssets(e.target.value)}
+              type="text" inputMode="numeric" placeholder="3,000,000"
+              value={assetsDisplay} onChange={handleAssetsChange}
             />
             <span style={styles.suffix}>円</span>
           </div>
@@ -1230,6 +1241,67 @@ function LoginOnly({ onDone, onBack }) {
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+function OnboardingRegisterStep({ onDone, onSkip, incomingReferralCode }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    setLoading(true);
+    try {
+      await upgradeToEmailAccount(email, password);
+      const u = await getCurrentUser();
+      if (u?.id) {
+        fetch("/api/apply-signup-trial", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: u.id }),
+        }).catch(() => {});
+        fetch("/api/update-reminder-setting", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: u.id, emailReminder: true, reminderEmail: email }),
+        }).catch(() => {});
+        if (incomingReferralCode) {
+          fetch("/api/apply-referral", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: u.id, referralCode: incomingReferralCode }),
+          }).catch(() => {});
+        }
+      }
+      onDone();
+    } catch (err) {
+      setMessage(toJaError(err));
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <p style={styles.eyebrow}>STEP 4 — 登録</p>
+      <h2 style={styles.h2}>データを保存しましょう</h2>
+      <p style={styles.lead}>メールアドレスで登録すると、このデータを他の端末からも見られるようになります。</p>
+      <form onSubmit={handleSignup}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 16 }}>
+          <label style={styles.field}>
+            <span style={styles.fieldLabel}>メールアドレス</span>
+            <div style={styles.fieldInputRow}><input style={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="example@email.com" /></div>
+          </label>
+          <label style={styles.field}>
+            <span style={styles.fieldLabel}>パスワード（6文字以上）</span>
+            <div style={styles.fieldInputRow}><input style={styles.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /></div>
+          </label>
+        </div>
+        {message && <p style={styles.warnText}>{message}</p>}
+        <button style={{ ...styles.primaryBtn, width: "100%" }} type="submit" disabled={loading}>{loading ? "登録中..." : "登録してメイン画面へ"}</button>
+      </form>
+      <button style={{ ...styles.smallLinkBtn, display: "block", marginTop: 14, textAlign: "center", width: "100%" }} onClick={onSkip}>今はスキップしてメイン画面へ</button>
+      <p style={{ fontSize: 11, color: "#9AA6A0", marginTop: 8, textAlign: "center" }}>スキップした場合、データはこの端末にのみ保存されます</p>
     </div>
   );
 }
