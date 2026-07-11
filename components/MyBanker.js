@@ -90,12 +90,32 @@ const DEFAULT_EXPENSES = [
 // 月間消費支出 出典：総務省統計局「家計調査（家計収支編）2024年 単身世帯」（年齢階級別の公表値。同調査は34歳以下／35〜59歳／60歳以上の3区分のため、各年代に割り当てて概算）。
 // いずれも厳密な分布データではなく、公表されている平均値・中央値・統計値から簡易的に推定するための参考値です。
 const AGE_STATS = {
+  // 10歳刻みの元データ
   20: { mean: 176, median: 20, monthlyExpense: 17.6 },
   30: { mean: 494, median: 75, monthlyExpense: 18.0 },
   40: { mean: 825, median: 250, monthlyExpense: 18.5 },
   50: { mean: 1253, median: 300, monthlyExpense: 18.5 },
   60: { mean: 1819, median: 700, monthlyExpense: 15.9 },
   70: { mean: 1633, median: 700, monthlyExpense: 15.9 },
+  // 5歳刻み(LP簡易診断用)
+  // 20代前半: 学生・社会人なりたてが多くほぼゼロから。20代全体平均より低め
+  "20-24": { mean: 60, median: 5, label: "20代前半（20〜24歳）" },
+  // 20代後半: 数年働いて積み上がり始める時期
+  "25-29": { mean: 230, median: 50, label: "20代後半（25〜29歳）" },
+  // 30代前半
+  "30-34": { mean: 350, median: 80, label: "30代前半（30〜34歳）" },
+  // 30代後半
+  "35-39": { mean: 620, median: 180, label: "30代後半（35〜39歳）" },
+  // 40代前半
+  "40-44": { mean: 720, median: 220, label: "40代前半（40〜44歳）" },
+  // 40代後半
+  "45-49": { mean: 950, median: 310, label: "40代後半（45〜49歳）" },
+  // 50代前半
+  "50-54": { mean: 1100, median: 320, label: "50代前半（50〜54歳）" },
+  // 50代後半
+  "55-59": { mean: 1420, median: 380, label: "50代後半（55〜59歳）" },
+  // 60代以上は従来通り
+  "60+": { mean: 1819, median: 700, label: "60代以上" },
 };
 
 // 年収（万円）の年代別目安。
@@ -1058,14 +1078,17 @@ function Intro({ onNext, onLogin }) {
   const [assets, setAssets] = useState("");
   const [result, setResult] = useState(null);
 
-  const ageDecade = (a) => {
+  const getAgeKey = (a) => {
     const n = Number(a);
-    if (n < 30) return 20;
-    if (n < 40) return 30;
-    if (n < 50) return 40;
-    if (n < 60) return 50;
-    if (n < 70) return 60;
-    return 70;
+    if (n < 25) return "20-24";
+    if (n < 30) return "25-29";
+    if (n < 35) return "30-34";
+    if (n < 40) return "35-39";
+    if (n < 45) return "40-44";
+    if (n < 50) return "45-49";
+    if (n < 55) return "50-54";
+    if (n < 60) return "55-59";
+    return "60+";
   };
 
   const [assetsDisplay, setAssetsDisplay] = useState(""); // 表示用(カンマ付き)
@@ -1082,13 +1105,87 @@ function Intro({ onNext, onLogin }) {
     const a = Number(age);
     const assetMan = Number(assets) / 10000;
     if (!a || !assetMan) return;
-    const decade = ageDecade(a);
-    const ageStats = AGE_STATS[decade];
-    const pct = estimatePercentile(assetMan, ageStats.mean, ageStats.median);
-    const dist = generateDistributionCurve(ageStats.mean, ageStats.median);
+    const key = getAgeKey(a);
+    const stats = AGE_STATS[key];
+    const pct = estimatePercentile(assetMan, stats.mean, stats.median);
+    const dist = generateDistributionCurve(stats.mean, stats.median);
     const medal = (p) => p <= 5 ? "💎" : p <= 20 ? "🥇" : p <= 50 ? "🥈" : "🥉";
     const highlightIdx = findBucketIndex(dist, assetMan);
-    setResult({ decade, pct, medal: medal(pct), dist, highlightIdx, a });
+    setResult({ pct, medal: medal(pct), dist, highlightIdx, label: stats.label });
+  };
+
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const handleShare = async () => {
+    setShareLoading(true);
+    const shareText = `あなたも無料で順位をチェック👇\nhttps://mybanker-app.vercel.app`;
+    try {
+      // Canvas で画像を生成
+      const canvas = document.createElement("canvas");
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = 600 * dpr;
+      canvas.height = 340 * dpr;
+      canvas.style.width = "600px";
+      canvas.style.height = "340px";
+      const ctx = canvas.getContext("2d");
+      ctx.scale(dpr, dpr);
+
+      // 背景
+      ctx.fillStyle = "#FBFAF0";
+      ctx.roundRect(0, 0, 600, 340, 20);
+      ctx.fill();
+
+      // ブランド名
+      ctx.fillStyle = "#B5582E";
+      ctx.font = "bold 15px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("MyBanker", 300, 36);
+
+      // メダル絵文字
+      ctx.font = "72px serif";
+      ctx.textAlign = "center";
+      ctx.fillText(result.medal, 300, 120);
+
+      // 順位
+      ctx.fillStyle = "#B5582E";
+      ctx.font = `bold 52px Georgia, serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(`上位 ${result.pct}%`, 300, 196);
+
+      // ラベル
+      ctx.fillStyle = "#1F2630";
+      ctx.font = "bold 18px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(result.label + "の総資産ランキング", 300, 238);
+
+      // 注釈
+      ctx.fillStyle = "#9AA6A0";
+      ctx.font = "12px sans-serif";
+      ctx.fillText("※ J-FLEC「家計の金融行動に関する世論調査」を参考にした概算です", 300, 268);
+
+      // URL
+      ctx.fillStyle = "#3D5A99";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("mybanker-app.vercel.app", 300, 310);
+
+      // 画像をBlobに
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      const file = new File([blob], "mybanker_rank.png", { type: "image/png" });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], text: shareText });
+      } else if (navigator.share) {
+        await navigator.share({ text: `${result.medal} 同年代${result.label}の総資産ランキングで上位${result.pct}%でした！\n\n${shareText}` });
+      } else {
+        navigator.clipboard?.writeText(`${result.medal} 同年代${result.label}の総資産ランキングで上位${result.pct}%でした！\n\n${shareText}`);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    } catch (e) {
+      // キャンセル等は無視
+    }
+    setShareLoading(false);
   };
 
   if (result) {
@@ -1098,7 +1195,7 @@ function Intro({ onNext, onLogin }) {
         <div style={{ textAlign: "center", padding: "8px 0 12px" }}>
           <div style={{ fontSize: 48, marginBottom: 4 }}>{result.medal}</div>
           <div style={{ fontFamily: "'Fraunces', serif", fontSize: 38, fontWeight: 700, color: "#B5582E" }}>上位 {result.pct}%</div>
-          <p style={{ fontSize: 13, color: "#5C6862", margin: "6px 0 0" }}>同年代（{result.decade}代）の総資産ランキング</p>
+          <p style={{ fontSize: 13, color: "#5C6862", margin: "6px 0 0" }}>{result.label}の総資産ランキング</p>
           <p style={{ fontSize: 11, color: "#9AA6A0", marginTop: 2 }}>※ J-FLEC「家計の金融行動に関する世論調査」を参考にした概算です</p>
         </div>
 
@@ -1115,6 +1212,10 @@ function Intro({ onNext, onLogin }) {
           </BarChart>
         </ResponsiveContainer></TouchDismissChart>
         <p style={{ fontSize: 11, color: "#9AA6A0", marginTop: 4 }}>● オレンジ＝あなたの位置</p>
+
+        <button style={{ ...styles.shareBtn, width: "100%", marginTop: 14 }} onClick={handleShare} disabled={shareLoading}>
+          {shareCopied ? "コピーしました ✓" : shareLoading ? "画像を生成中..." : "📤 この結果をシェアする"}
+        </button>
 
         <div style={{ background: "#F7F5EF", borderRadius: 12, padding: "14px 16px", margin: "16px 0" }}>
           <p style={{ fontSize: 13, color: "#1F2630", margin: 0, lineHeight: 1.8 }}>
