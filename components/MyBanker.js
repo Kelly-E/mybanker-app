@@ -1041,7 +1041,11 @@ export default function MyBanker() {
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
-        {step !== 0 && step !== -1 && <Header step={step} setStep={setStep} />}
+        {step === 0 || step === -1 ? (
+          <div style={styles.header}><div style={styles.brand}><LogoIcon /> MyBanker</div></div>
+        ) : (
+          <Header step={step} setStep={setStep} />
+        )}
         {step === 0 && <Intro onNext={() => setStep(1)} onLogin={() => setStep(-1)} />}
         {step === -1 && <LoginOnly onDone={() => window.location.reload()} onBack={() => setStep(0)} />}
         {step === 1 && <IncomeStep {...sharedProps} onNext={() => setStep(2)} onBack={() => setStep(0)} />}
@@ -1117,74 +1121,62 @@ function Intro({ onNext, onLogin }) {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
 
+  const buildShareImage = () => new Promise((resolve) => {
+    const W = 600, H = 360;
+    const canvas = document.createElement("canvas");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    // 背景
+    ctx.fillStyle = "#FBFAF0"; ctx.fillRect(0, 0, W, H);
+    // ブランドロゴ(セリフ体でMyBankerらしく)
+    ctx.fillStyle = "#1F2630";
+    ctx.font = `bold 26px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = "center";
+    ctx.fillText("MyBanker", W / 2, 44);
+    // 区切り線
+    ctx.strokeStyle = "#E3E9E4"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(40, 58); ctx.lineTo(W - 40, 58); ctx.stroke();
+    // メダル
+    ctx.font = "80px serif"; ctx.textAlign = "center";
+    ctx.fillText(result.medal, W / 2, 148);
+    // 順位
+    ctx.fillStyle = "#B5582E";
+    ctx.font = `bold 58px Georgia, serif`;
+    ctx.fillText(`上位 ${result.pct}%`, W / 2, 218);
+    // ラベル
+    ctx.fillStyle = "#1F2630"; ctx.font = "bold 17px sans-serif";
+    ctx.fillText(result.label + "の総資産ランキング", W / 2, 256);
+    // 注釈
+    ctx.fillStyle = "#9AA6A0"; ctx.font = "11px sans-serif";
+    ctx.fillText("※ J-FLEC「家計の金融行動に関する世論調査」を参考にした概算です", W / 2, 284);
+    // 区切り線
+    ctx.strokeStyle = "#E3E9E4";
+    ctx.beginPath(); ctx.moveTo(40, 304); ctx.lineTo(W - 40, 304); ctx.stroke();
+    // URL
+    ctx.fillStyle = "#3D5A99"; ctx.font = "13px sans-serif";
+    ctx.fillText("mybanker-app.vercel.app", W / 2, 332);
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
+
   const handleShare = async () => {
+    if (!result) return;
     setShareLoading(true);
-    const shareText = `あなたも無料で順位をチェック👇\nhttps://mybanker-app.vercel.app`;
+    const text = `━━━━━━━━━━\n同年代との資産比較\n資産：${result.medal}上位${result.pct}%\n━━━━━━━━━━\nあなたも無料で順位をチェック👇\nhttps://mybanker-app.vercel.app`;
     try {
-      // Canvas で画像を生成
-      const canvas = document.createElement("canvas");
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = 600 * dpr;
-      canvas.height = 340 * dpr;
-      canvas.style.width = "600px";
-      canvas.style.height = "340px";
-      const ctx = canvas.getContext("2d");
-      ctx.scale(dpr, dpr);
-
-      // 背景
-      ctx.fillStyle = "#FBFAF0";
-      ctx.roundRect(0, 0, 600, 340, 20);
-      ctx.fill();
-
-      // ブランド名
-      ctx.fillStyle = "#B5582E";
-      ctx.font = "bold 15px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("MyBanker", 300, 36);
-
-      // メダル絵文字
-      ctx.font = "72px serif";
-      ctx.textAlign = "center";
-      ctx.fillText(result.medal, 300, 120);
-
-      // 順位
-      ctx.fillStyle = "#B5582E";
-      ctx.font = `bold 52px Georgia, serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(`上位 ${result.pct}%`, 300, 196);
-
-      // ラベル
-      ctx.fillStyle = "#1F2630";
-      ctx.font = "bold 18px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(result.label + "の総資産ランキング", 300, 238);
-
-      // 注釈
-      ctx.fillStyle = "#9AA6A0";
-      ctx.font = "12px sans-serif";
-      ctx.fillText("※ J-FLEC「家計の金融行動に関する世論調査」を参考にした概算です", 300, 268);
-
-      // URL
-      ctx.fillStyle = "#3D5A99";
-      ctx.font = "13px sans-serif";
-      ctx.fillText("mybanker-app.vercel.app", 300, 310);
-
-      // 画像をBlobに
-      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-      const file = new File([blob], "mybanker_rank.png", { type: "image/png" });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], text: shareText });
+      const blob = await buildShareImage();
+      const file = blob ? new File([blob], "mybanker_rank.png", { type: "image/png" }) : null;
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], text });
       } else if (navigator.share) {
-        await navigator.share({ text: `${result.medal} 同年代${result.label}の総資産ランキングで上位${result.pct}%でした！\n\n${shareText}` });
+        await navigator.share({ text });
       } else {
-        navigator.clipboard?.writeText(`${result.medal} 同年代${result.label}の総資産ランキングで上位${result.pct}%でした！\n\n${shareText}`);
+        navigator.clipboard?.writeText(text);
         setShareCopied(true);
         setTimeout(() => setShareCopied(false), 2000);
       }
-    } catch (e) {
-      // キャンセル等は無視
-    }
+    } catch (e) { /* キャンセル等は無視 */ }
     setShareLoading(false);
   };
 
